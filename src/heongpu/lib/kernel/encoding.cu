@@ -351,4 +351,161 @@ namespace heongpu
         complex_message[order] = result_c;
     }
 
+    // @company CipherFlow 
+    __global__ void encode_coeff_kernel_double_to_rns(
+        Data64* plaintext, double* message, Modulus64* modulus,
+        int coeff_modulus_count, double scale, double two_pow_64, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // coefficient index
+
+        double message_scaled = message[idx] * scale;
+        double coeff_double = round(message_scaled);
+        bool is_negative = signbit(coeff_double);
+        coeff_double = fabs(coeff_double);
+
+        // Convert to 128-bit representation
+        Data64 coeff[2] = {
+            static_cast<std::uint64_t>(fmod(coeff_double, two_pow_64)),
+            static_cast<std::uint64_t>(coeff_double / two_pow_64)};
+
+        // Convert to RNS representation for each modulus qi
+        if (is_negative)
+        {
+            for (int i = 0; i < coeff_modulus_count; i++)
+            {
+                Data64 temp = OPERATOR_GPU_64::reduce(coeff, modulus[i]);
+                plaintext[idx + (i << n_power)] =
+                    OPERATOR_GPU_64::sub(modulus[i].value, temp, modulus[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < coeff_modulus_count; i++)
+            {
+                plaintext[idx + (i << n_power)] =
+                    OPERATOR_GPU_64::reduce(coeff, modulus[i]);
+            }
+        }
+    }
+
+    // @company CipherFlow 
+    __global__ void decode_coeff_kernel_rns_to_double(
+        double* message, Data64* plaintext, Modulus64* modulus, Data64* Mi_inv,
+        Data64* Mi, Data64* upper_half_threshold, Data64* decryption_modulus,
+        int coeff_modulus_count, double scale, double two_pow_64, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // coefficient index
+        double inv_scale = double(1.0) / scale;
+        double two_pow_64_reg = two_pow_64;
+
+        Data64 compose_result[50]; // TODO: Define size as global variable
+        Data64 big_integer_result[50]; // TODO: Define size as global variable
+
+        biginteger::set_zero(compose_result, coeff_modulus_count);
+
+        // CRT reconstruction
+#pragma unroll
+        for (int i = 0; i < coeff_modulus_count; i++)
+        {
+            Data64 base = plaintext[idx + (i << n_power)];
+            Data64 temp = OPERATOR_GPU_64::mult(base, Mi_inv[i], modulus[i]);
+
+            biginteger::multiply(Mi + (i * coeff_modulus_count),
+                                 coeff_modulus_count, temp, big_integer_result,
+                                 coeff_modulus_count);
+
+            int carry = biginteger::add_inplace(
+                compose_result, big_integer_result, coeff_modulus_count);
+
+            bool check = biginteger::is_greater_or_equal(
+                compose_result, decryption_modulus, coeff_modulus_count);
+
+            if (check)
+            {
+                biginteger::sub2(compose_result, decryption_modulus,
+                                 coeff_modulus_count, compose_result);
+            }
+        }
+
+        // Check if result needs to be negative (centered representation)
+        bool result_sign = biginteger::is_greater_or_equal(
+            compose_result, upper_half_threshold, coeff_modulus_count);
+
+        // Convert to double and scale down
+        double result = 0.0;
+        if (result_sign)
+        {
+            // Negative value: compute (decryption_modulus - compose_result)
+            double scaled_two_pow_64 = inv_scale;
+            for (std::size_t j = 0; j < coeff_modulus_count;
+                 j++, scaled_two_pow_64 *= two_pow_64_reg)
+            {
+                if (compose_result[j] > decryption_modulus[j])
+                {
+                    auto diff = compose_result[j] - decryption_modulus[j];
+                    result +=
+                        diff ? static_cast<double>(diff) * scaled_two_pow_64
+                             : 0.0;
+                }
+                else
+                {
+                    auto diff = decryption_modulus[j] - compose_result[j];
+                    result -=
+                        diff ? static_cast<double>(diff) * scaled_two_pow_64
+                             : 0.0;
+                }
+            }
+        }
+        else
+        {
+            // Positive value
+            double scaled_two_pow_64 = inv_scale;
+            for (std::size_t j = 0; j < coeff_modulus_count;
+                 j++, scaled_two_pow_64 *= two_pow_64_reg)
+            {
+                auto curr_coeff = compose_result[j];
+                result += curr_coeff ? static_cast<double>(curr_coeff) *
+                                           scaled_two_pow_64
+                                     : 0.0;
+            }
+        }
+
+        message[idx] = result;
+    }
+
+
+    __global__ void
+    ringt_to_pt_kernel(Data64* input, Data64* output, Modulus64* modulus, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int idy = blockIdx.y; // rns count
+
+        int location_input = idx;
+        int location_output = idx + (idy << n_power);
+
+        Data64 q0 = modulus[0].value;
+        Data64 qi = modulus[idy].value;
+
+        // Get coefficient from level 0
+        Data64 coeff = input[location_input];
+
+        // Centered reduction around q0
+        // If coeff >= q0/2, use negative representation: coeff = q0 - coeff
+        Data64 pos = 1;
+        Data64 neg = 0;
+        if (coeff >= (q0 >> 1)) {
+            coeff = q0 - coeff;
+            pos = 0;
+            neg = 1;
+        }
+
+        if (idy == 0) {
+            output[location_output] = input[location_input];
+        } else {
+            Data64 tmp = OPERATOR_GPU_64::reduce_forced(coeff, modulus[idy]);
+            output[location_output] = tmp * pos + (qi - tmp) * neg;
+        }
+        
+    }
+
 } // namespace heongpu

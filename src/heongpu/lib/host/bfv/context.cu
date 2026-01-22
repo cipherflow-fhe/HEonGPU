@@ -233,7 +233,7 @@ namespace heongpu
 
             if ((max_coeff_bit_count < total_coeff_bit_count) &&
                 (sec_level_ != sec_level_type::none))
-            {
+            {   
                 throw std::runtime_error(
                     "Parameters do not align with the security recommendations "
                     "provided by the lattice-estimator");
@@ -434,7 +434,7 @@ namespace heongpu
                 generate_intt_table(base_q_psi, prime_vector_, n_power);
             std::vector<Ninverse64> Qprime_n_inverse =
                 generate_n_inverse(n, prime_vector_);
-
+            
             ntt_table_ =
                 std::make_shared<DeviceVector<Root64>>(Qprime_ntt_table);
 
@@ -461,6 +461,35 @@ namespace heongpu
 
             factor_ = std::make_shared<DeviceVector<Data64>>(factor);
 
+            // For Rescale parameters for all depth, @company CipherFlow begin ---
+            std::vector<Data64> rescale_last_q_modinv;
+            std::vector<Data64> rescaled_half_mod;
+            std::vector<Data64> rescaled_half;
+            for (int j = 0; j < (Q_size - 1); j++)
+            {
+                int inner = (Q_size - 1) - j;
+                rescaled_half.push_back(prime_vector_[inner].value >> 1);
+                for (int i = 0; i < inner; i++)
+                {
+                    Data64 temp_ =
+                        prime_vector_[inner].value % prime_vector_[i].value;
+                    rescale_last_q_modinv.push_back(
+                        OPERATOR64::modinv(temp_, prime_vector_[i]));
+                    rescaled_half_mod.push_back(rescaled_half[j] %
+                                                prime_vector_[i].value);
+                }
+            }
+
+            rescaled_last_q_modinv_ =
+                std::make_shared<DeviceVector<Data64>>(rescale_last_q_modinv);
+
+            rescaled_half_mod_ =
+                std::make_shared<DeviceVector<Data64>>(rescaled_half_mod);
+
+            rescaled_half_ =
+                std::make_shared<DeviceVector<Data64>>(rescaled_half);
+            //  @company CipherFlow end ---
+
             ///////////////////////
             ///////////////////////
             ///////////////////////
@@ -482,13 +511,37 @@ namespace heongpu
 
             decryption_modulus_ =
                 std::make_shared<DeviceVector<Data64>>(decryption_modulus);
+            
+             // prime_location_leveled,  @company CipherFlow begin ---
+            std::vector<int> prime_loc;
+            int counter = Q_size;
+            for (int i = 0; i < Q_size - 1; i++)
+            {
+                for (int j = 0; j < counter; j++)
+                {
+                    prime_loc.push_back(j);
+                }
+                counter--;
+                for (int j = 0; j < P_size; j++)
+                {
+                    prime_loc.push_back(Q_size + j);
+                }
+            }
+
+            prime_location_leveled =
+                std::make_shared<DeviceVector<int>>(prime_loc);
+            // @company CipherFlow end ---
 
             total_bit_count_ = calculate_big_integer_bit_count(
                 decryption_modulus.data(), decryption_modulus.size());
 
             Modulus64 plain_mod = plain_modulus_;
 
-            Data64 plain_psi = find_minimal_primitive_root(2 * n, plain_mod);
+            /**
+             * @company CipherFlow
+             */
+            // Data64 plain_psi = find_minimal_primitive_root(2 * n, plain_mod);
+            Data64 plain_psi = generate_primitive_root_of_unity(n, std::vector<Modulus64>{plain_mod})[0];
 
             std::vector<Root64> plain_forward_table =
                 generate_ntt_table({plain_psi}, {plain_mod}, n_power);
@@ -511,25 +564,52 @@ namespace heongpu
 
             Modulus64 m_tilde((1ULL << 32));
 
-            Data64 Q_mod_t = generate_Q_mod_t(prime_vector_, plain_mod, Q_size);
-
-            std::vector<Data64> coeff_div_plain_modulus =
-                generate_coeff_div_plain_modulus(prime_vector_, plain_mod,
-                                                 Q_size);
-
-            bsk_modulus = prime_vector_.size();
-            if (calculate_bit_count(plain_mod.value) + total_coeff_bit_count +
-                    32 >=
-                MAX_MOD_BIT_COUNT * Q_size + MAX_MOD_BIT_COUNT)
+            // @company CipherFlow begin ---
+            std::vector<Data64> Q_mod_t;
+            for (int i = 0; i < Q_size; i++)
             {
-                bsk_modulus++;
+                int depth_Q_size = Q_size - i;
+                Data64 Q_mod_t_inner = generate_Q_mod_t(prime_vector_, plain_mod, depth_Q_size);
+                Q_mod_t.push_back(Q_mod_t_inner);
             }
+
+            std::vector <Data64> coeff_div_plain_modulus;
+            for (int i = 0; i < Q_size; i++)
+            {
+                int depth_Q_size = Q_size - i;
+
+                std::vector<Data64> coeff_div_plain_modulus_inner =
+                    generate_coeff_div_plain_modulus(prime_vector_, plain_mod,
+                                                    depth_Q_size);
+                for (int j = 0; j < depth_Q_size; j++)
+                {
+                    coeff_div_plain_modulus.push_back(
+                        coeff_div_plain_modulus_inner[j]);
+                }
+            }
+            // @company CipherFlow end ---
+
+            // @company CipherFlow begin ---
+            // bsk_modulus = prime_vector_.size();
+            // if (calculate_bit_count(plain_mod.value) + total_coeff_bit_count +
+            //         32 >=
+            //     MAX_MOD_BIT_COUNT * Q_size + MAX_MOD_BIT_COUNT)
+            // {
+            //     bsk_modulus++;
+            // }
+
+            for (int i = 0; i < Q_size; i++) {
+                int depth_Q_size = Q_size - i;
+                int depth_bsk_modulus_size = calculate_bsk_modulus_size(depth_Q_size);
+                bsk_modulus.push_back(depth_bsk_modulus_size);
+            }
+            // @company CipherFlow end ---
 
             std::vector<Modulus64> base_Bsk_mod = generate_internal_primes(
                 n,
-                bsk_modulus + 1); // extra for gamma parameter
+                bsk_modulus[0] + 1); // extra for gamma parameter, @company CipherFlow
 
-            Modulus64 gamma_mod = base_Bsk_mod[bsk_modulus];
+            Modulus64 gamma_mod = base_Bsk_mod[bsk_modulus[0]]; // @company CipherFlow
             base_Bsk_mod.pop_back();
 
             std::vector<Data64> base_Bsk_psi =
@@ -551,44 +631,130 @@ namespace heongpu
 
             bsk_n_inverse_ =
                 std::make_shared<DeviceVector<Ninverse64>>(Bsk_n_inverse);
+            
+            // @company CipherFlow begin ---
+            // std::vector<Data64> base_matrix_q_Bsk =
+            //     generate_base_matrix_q_Bsk(prime_vector_, base_Bsk_mod, Q_size);
 
-            std::vector<Data64> base_matrix_q_Bsk =
-                generate_base_matrix_q_Bsk(prime_vector_, base_Bsk_mod, Q_size);
+            // std::vector<Data64> inv_punctured_prod_mod_base_array =
+            //     calculate_Mi_inv(prime_vector_, Q_size);
 
-            std::vector<Data64> inv_punctured_prod_mod_base_array =
-                calculate_Mi_inv(prime_vector_, Q_size);
+            // std::vector<Data64> base_change_matrix_m_tilde =
+            //     generate_base_change_matrix_m_tilde(prime_vector_, m_tilde,
+            //                                         Q_size);
+            
+            // @company CipherFlow
+            std::vector<Data64> base_matrix_q_Bsk;
+            std::vector<Data64> base_change_matrix_m_tilde;
+            std::vector<Data64> inv_punctured_prod_mod_base_array;
 
-            std::vector<Data64> base_change_matrix_m_tilde =
-                generate_base_change_matrix_m_tilde(prime_vector_, m_tilde,
-                                                    Q_size);
+            std::vector<Data64> inv_prod_q_mod_m_tilde;
+            std::vector<Data64> prod_q_mod_Bsk;
+            std::vector<Data64> inv_prod_q_mod_Bsk;
 
-            Data64 inv_prod_q_mod_m_tilde =
-                generate_inv_prod_q_mod_m_tilde(prime_vector_, m_tilde, Q_size);
+            std::vector<Data64> base_matrix_Bsk_q;
+            std::vector<Data64> prod_B_mod_q;
+
+            std::vector<Data64> base_change_matrix_msk;
+            std::vector<Data64> inv_punctured_prod_mod_B_array;
+            std::vector<Data64> inv_prod_B_mod_m_sk;
+            for (int i = 0; i < Q_size; i++) 
+            {
+                int depth_Q_size = Q_size - i;
+        
+                std::vector<Data64> base_matrix_q_Bsk_inner =
+                    generate_base_matrix_q_Bsk(prime_vector_, base_Bsk_mod, depth_Q_size, bsk_modulus[i]);
+                for (int j = 0; j < bsk_modulus[i] * depth_Q_size; j++) {
+                    base_matrix_q_Bsk.push_back(base_matrix_q_Bsk_inner[j]);
+                }
+
+                std::vector<Data64> base_change_matrix_m_tilde_inner =
+                    generate_base_change_matrix_m_tilde(prime_vector_, m_tilde,
+                                                        depth_Q_size);
+                for (int j = 0; j < depth_Q_size; j++) {
+                    base_change_matrix_m_tilde.push_back(base_change_matrix_m_tilde_inner[j]);  
+                }
+
+                std::vector<Data64> inv_punctured_prod_mod_base_array_inner =
+                    calculate_Mi_inv(prime_vector_, depth_Q_size);
+                for (int j = 0; j < depth_Q_size; j++) {
+                    inv_punctured_prod_mod_base_array.push_back(inv_punctured_prod_mod_base_array_inner[j]);
+                }
+
+                Data64 inv_prod_q_mod_m_tilde_inner =
+                    generate_inv_prod_q_mod_m_tilde(prime_vector_, m_tilde, depth_Q_size);
+                inv_prod_q_mod_m_tilde.push_back(inv_prod_q_mod_m_tilde_inner);
+
+                std::vector<Data64> prod_q_mod_Bsk_inner =
+                    generate_prod_q_mod_Bsk(prime_vector_, base_Bsk_mod, depth_Q_size, bsk_modulus[i]);
+                for (int j = 0; j < bsk_modulus[i]; j++) {
+                    prod_q_mod_Bsk.push_back(prod_q_mod_Bsk_inner[j]);
+                }
+
+                std::vector<Data64> inv_prod_q_mod_Bsk_inner =
+                    generate_inv_prod_q_mod_Bsk(prime_vector_, base_Bsk_mod, depth_Q_size, bsk_modulus[i]);
+                for (int j = 0; j < bsk_modulus[i]; j++) {
+                    inv_prod_q_mod_Bsk.push_back(inv_prod_q_mod_Bsk_inner[j]);
+                }
+
+                std::vector<Data64> base_matrix_Bsk_q_inner =
+                    generate_base_matrix_Bsk_q(prime_vector_, base_Bsk_mod, depth_Q_size, bsk_modulus[i]);
+                for (int j = 0; j < (bsk_modulus[i]-1) * depth_Q_size; j++) {
+                    base_matrix_Bsk_q.push_back(base_matrix_Bsk_q_inner[j]);
+                }
+
+                std::vector<Data64> prod_B_mod_q_inner =
+                    generate_prod_B_mod_q(prime_vector_, base_Bsk_mod, depth_Q_size, bsk_modulus[i]);
+                for (int j = 0; j < depth_Q_size; j++) {
+                    prod_B_mod_q.push_back(prod_B_mod_q_inner[j]);
+                }
+
+                std::vector<Data64> inv_punctured_prod_mod_B_array_inner =
+                    generate_inv_punctured_prod_mod_B_array(base_Bsk_mod, bsk_modulus[i]);
+                for (size_t j = 0; j < bsk_modulus[i]-1; j++)
+                {
+                    inv_punctured_prod_mod_B_array.push_back(inv_punctured_prod_mod_B_array_inner[j]);
+                }
+
+                std::vector<Data64> base_change_matrix_msk_inner =
+                    generate_base_change_matrix_msk(base_Bsk_mod, bsk_modulus[i]);
+                for (size_t j = 0; j < (bsk_modulus[i]-1); j++)
+                {
+                    base_change_matrix_msk.push_back(base_change_matrix_msk_inner[j]);  
+                }
+
+                Data64 inv_prod_B_mod_m_sk_inner =
+                    generate_inv_prod_B_mod_m_sk(base_Bsk_mod, bsk_modulus[i]);
+                inv_prod_B_mod_m_sk.push_back(inv_prod_B_mod_m_sk_inner);
+            }
+            // @company CipherFlow end ---
 
             std::vector<Data64> inv_m_tilde_mod_Bsk =
                 generate_inv_m_tilde_mod_Bsk(base_Bsk_mod, m_tilde);
+    
+            // @company CipherFlow begin ---
+            // std::vector<Data64> prod_q_mod_Bsk =
+            //     generate_prod_q_mod_Bsk(prime_vector_, base_Bsk_mod, Q_size);
 
-            std::vector<Data64> prod_q_mod_Bsk =
-                generate_prod_q_mod_Bsk(prime_vector_, base_Bsk_mod, Q_size);
+            // std::vector<Data64> inv_prod_q_mod_Bsk =
+            //     generate_inv_prod_q_mod_Bsk(prime_vector_, base_Bsk_mod,
+            //                                 Q_size);
 
-            std::vector<Data64> inv_prod_q_mod_Bsk =
-                generate_inv_prod_q_mod_Bsk(prime_vector_, base_Bsk_mod,
-                                            Q_size);
+            // std::vector<Data64> base_matrix_Bsk_q =
+            //     generate_base_matrix_Bsk_q(prime_vector_, base_Bsk_mod, Q_size);
 
-            std::vector<Data64> base_matrix_Bsk_q =
-                generate_base_matrix_Bsk_q(prime_vector_, base_Bsk_mod, Q_size);
+            // std::vector<Data64> base_change_matrix_msk =
+            //     generate_base_change_matrix_msk(base_Bsk_mod);
+            
+            // std::vector<Data64> inv_punctured_prod_mod_B_array =
+            //     generate_inv_punctured_prod_mod_B_array(base_Bsk_mod);
 
-            std::vector<Data64> base_change_matrix_msk =
-                generate_base_change_matrix_msk(base_Bsk_mod);
+            // Data64 inv_prod_B_mod_m_sk =
+            //     generate_inv_prod_B_mod_m_sk(base_Bsk_mod);
 
-            std::vector<Data64> inv_punctured_prod_mod_B_array =
-                generate_inv_punctured_prod_mod_B_array(base_Bsk_mod);
-
-            Data64 inv_prod_B_mod_m_sk =
-                generate_inv_prod_B_mod_m_sk(base_Bsk_mod);
-
-            std::vector<Data64> prod_B_mod_q =
-                generate_prod_B_mod_q(prime_vector_, base_Bsk_mod, Q_size);
+            // std::vector<Data64> prod_B_mod_q =
+            //     generate_prod_B_mod_q(prime_vector_, base_Bsk_mod, Q_size);
+            // @company CipherFlow end ---
 
             std::vector<Modulus64> q_Bsk_merge_modulus =
                 generate_q_Bsk_merge_modulus(prime_vector_, base_Bsk_mod,
@@ -603,21 +769,69 @@ namespace heongpu
                 q_Bsk_merge_root, q_Bsk_merge_modulus, n_power);
             std::vector<Ninverse64> q_Bsk_n_inverse =
                 generate_n_inverse(n, q_Bsk_merge_modulus);
+            
+            // @company CipherFlow begin ---
+            std::vector<Data64> Qi_t;
+            std::vector<Data64> Qi_gamma;
+            std::vector<Data64> Qi_inverse;
+            std::vector<Data64> mulq_inv_t;
+            std::vector<Data64> mulq_inv_gamma;
 
-            std::vector<Data64> Qi_t =
-                generate_Qi_t(prime_vector_, plain_mod, Q_size);
+            for (int i = 0; i < Q_size; i++)
+            {
+                int depth_Q_size = Q_size - i;
 
-            std::vector<Data64> Qi_gamma =
-                generate_Qi_gamma(prime_vector_, gamma_mod, Q_size);
+                // \tilde{qi} mod t
+                std::vector<Data64> Qi_t_inner =
+                    generate_Qi_t(prime_vector_, plain_mod, depth_Q_size);
+                for (int j = 0; j < depth_Q_size; j++)
+                {
+                    Qi_t.push_back(Qi_t_inner[j]);
+                }
 
-            std::vector<Data64> Qi_inverse =
-                generate_Qi_inverse(prime_vector_, Q_size);
+                // \tilde{qi} mod \gamma
+                std::vector<Data64> Qi_gamma_inner =
+                    generate_Qi_gamma(prime_vector_, gamma_mod, depth_Q_size);
+                for (int j = 0; j < depth_Q_size; j++)
+                {
+                    Qi_gamma.push_back(Qi_gamma_inner[j]);
+                }
 
-            Data64 mulq_inv_t =
-                generate_mulq_inv_t(prime_vector_, plain_mod, Q_size);
+                // \tilde{qi}^(-1) mod qi
+                std::vector<Data64> Qi_inverse_inner =
+                    generate_Qi_inverse(prime_vector_, depth_Q_size);
+                for (int j = 0; j < depth_Q_size; j++)
+                {       
+                    Qi_inverse.push_back(Qi_inverse_inner[j]);
+                }
 
-            Data64 mulq_inv_gamma =
-                generate_mulq_inv_gamma(prime_vector_, gamma_mod, Q_size);
+                // -Q^{-1} mod t
+                Data64 mulq_inv_t_inner =
+                    generate_mulq_inv_t(prime_vector_, plain_mod, depth_Q_size);
+                mulq_inv_t.push_back(mulq_inv_t_inner);
+
+                // -Q^{-1} mod \gamma
+                Data64 mulq_inv_gamma_inner = generate_mulq_inv_gamma(
+                    prime_vector_, gamma_mod, depth_Q_size);
+                mulq_inv_gamma.push_back(mulq_inv_gamma_inner);
+
+            }
+
+            // std::vector<Data64> Qi_t =
+            //     generate_Qi_t(prime_vector_, plain_mod, Q_size);
+
+            // std::vector<Data64> Qi_gamma =
+            //     generate_Qi_gamma(prime_vector_, gamma_mod, Q_size);
+
+            // std::vector<Data64> Qi_inverse =
+            //     generate_Qi_inverse(prime_vector_, Q_size);
+
+            // Data64 mulq_inv_t =
+            //     generate_mulq_inv_t(prime_vector_, plain_mod, Q_size);
+
+            // Data64 mulq_inv_gamma =
+            //     generate_mulq_inv_gamma(prime_vector_, gamma_mod, Q_size);
+            // @company CipherFlow end ---
 
             Data64 inv_gamma = generate_inv_gamma(plain_mod, gamma_mod);
 
@@ -634,7 +848,9 @@ namespace heongpu
                 std::make_shared<DeviceVector<Data64>>(
                     base_change_matrix_m_tilde);
 
-            inv_prod_q_mod_m_tilde_ = inv_prod_q_mod_m_tilde;
+            // inv_prod_q_mod_m_tilde_ = inv_prod_q_mod_m_tilde;
+            inv_prod_q_mod_m_tilde_ =
+                std::make_shared<DeviceVector<Data64>>(inv_prod_q_mod_m_tilde); // @company CipherFlow
 
             inv_m_tilde_mod_Bsk_ =
                 std::make_shared<DeviceVector<Data64>>(inv_m_tilde_mod_Bsk);
@@ -655,7 +871,7 @@ namespace heongpu
                 std::make_shared<DeviceVector<Data64>>(
                     inv_punctured_prod_mod_B_array);
 
-            inv_prod_B_mod_m_sk_ = inv_prod_B_mod_m_sk;
+            inv_prod_B_mod_m_sk_ = std::make_shared<DeviceVector<Data64>>(inv_prod_B_mod_m_sk); // @company CipherFlow
 
             prod_B_mod_q_ =
                 std::make_shared<DeviceVector<Data64>>(prod_B_mod_q);
@@ -689,7 +905,7 @@ namespace heongpu
             coeeff_div_plainmod_ =
                 std::make_shared<DeviceVector<Data64>>(coeff_div_plain_modulus);
 
-            Q_mod_t_ = Q_mod_t;
+            Q_mod_t_ = std::make_shared<DeviceVector<Data64>>(Q_mod_t); // @company CipherFlow
 
             upper_threshold_ = plain_upper_half_threshold;
 
@@ -702,8 +918,11 @@ namespace heongpu
 
             Qi_inverse_ = std::make_shared<DeviceVector<Data64>>(Qi_inverse);
 
-            mulq_inv_t_ = mulq_inv_t;
-            mulq_inv_gamma_ = mulq_inv_gamma;
+            // mulq_inv_t_ = mulq_inv_t; // @company CipherFlow
+            // mulq_inv_gamma_ = mulq_inv_gamma; // @company CipherFlow
+            mulq_inv_t_ = std::make_shared<DeviceVector<Data64>>(mulq_inv_t); // @company CipherFlow
+            mulq_inv_gamma_ = std::make_shared<DeviceVector<Data64>>(mulq_inv_gamma); // @company CipherFlow
+
             inv_gamma_ = inv_gamma;
 
             //////////////////////////
@@ -751,6 +970,83 @@ namespace heongpu
                     std::vector<int> Sk_pair_inner = pool.sk_pair();
                     Sk_pair_ =
                         std::make_shared<DeviceVector<int>>(Sk_pair_inner);
+                    
+                    // @company CipherFlow begin ---
+                    m_leveled = pool.m;
+                    l_leveled =
+                        std::make_shared<std::vector<int>>(pool.level_Q_);
+                    l_tilda_leveled = std::make_shared<std::vector<int>>(
+                        pool.level_Qtilda_);
+
+                    d_leveled =
+                        std::make_shared<std::vector<int>>(pool.level_d_);
+
+                    std::vector<std::vector<Data64>>
+                        base_change_matrix_D_to_Qtilda_vec =
+                            pool.level_base_change_matrix_D_to_Qtilda();
+
+                    std::vector<std::vector<Data64>> Mi_inv_D_to_Qtilda_vec =
+                        pool.level_Mi_inv_D_to_Qtilda();
+
+                    std::vector<std::vector<Data64>> prod_D_to_Qtilda_vec =
+                        pool.level_prod_D_to_Qtilda();
+
+                    std::vector<std::vector<int>> I_j_vec =
+                        pool.level_I_j();
+
+                    std::vector<std::vector<int>> I_location_vec =
+                        pool.level_I_location();
+
+                    std::vector<std::vector<int>> Sk_pair_new_vec =
+                        pool.level_sk_pair();
+
+                    base_change_matrix_D_to_Qtilda_leveled =
+                        std::make_shared<std::vector<DeviceVector<Data64>>>();
+                    Mi_inv_D_to_Qtilda_leveled =
+                        std::make_shared<std::vector<DeviceVector<Data64>>>();
+                    prod_D_to_Qtilda_leveled =
+                        std::make_shared<std::vector<DeviceVector<Data64>>>();
+                    I_j_leveled =
+                        std::make_shared<std::vector<DeviceVector<int>>>();
+                    I_location_leveled =
+                        std::make_shared<std::vector<DeviceVector<int>>>();
+                    Sk_pair_leveled =
+                        std::make_shared<std::vector<DeviceVector<int>>>();
+
+                    for (int pool_lp = 0;
+                         pool_lp < base_change_matrix_D_to_Qtilda_vec.size();
+                         pool_lp++)
+                    {
+                        DeviceVector<Data64>
+                            base_change_matrix_D_to_Qtilda_leveled_inner(
+                                base_change_matrix_D_to_Qtilda_vec[pool_lp]);
+                        DeviceVector<Data64> Mi_inv_D_to_Qtilda_leveled_inner(
+                            Mi_inv_D_to_Qtilda_vec[pool_lp]);
+                        DeviceVector<Data64> prod_D_to_Qtilda_leveled_inner(
+                            prod_D_to_Qtilda_vec[pool_lp]);
+
+                        base_change_matrix_D_to_Qtilda_leveled->push_back(
+                            std::move(
+                                base_change_matrix_D_to_Qtilda_leveled_inner));
+                        Mi_inv_D_to_Qtilda_leveled->push_back(
+                            std::move(Mi_inv_D_to_Qtilda_leveled_inner));
+                        prod_D_to_Qtilda_leveled->push_back(
+                            std::move(prod_D_to_Qtilda_leveled_inner));
+
+                        DeviceVector<int> I_j_vec_inner(I_j_vec[pool_lp]);
+                        DeviceVector<int> I_location_vec_inner(
+                            I_location_vec[pool_lp]);
+                        DeviceVector<int> Sk_pair_new_vec_inner(
+                            Sk_pair_new_vec[pool_lp]);
+
+                        I_j_leveled->push_back(std::move(I_j_vec_inner));
+                        I_location_leveled->push_back(
+                            std::move(I_location_vec_inner));
+                        Sk_pair_leveled->push_back(
+                            std::move(Sk_pair_new_vec_inner));
+                    }
+                    // @company CipherFlow end ---
+                    
                 }
                 break;
                 case 3: // KEYSWITCHING_METHOD_III
@@ -1066,11 +1362,56 @@ namespace heongpu
         return result_M;
     }
 
+    // @company CipherFlow
+    int HEContext<Scheme::BFV>::calculate_bsk_modulus_size(int size)
+    {
+        int coeff_bit_count = 0;
+        for (int i = 0; i < size; i++)
+        {
+            coeff_bit_count += Qprime_mod_bit_sizes_[i];
+        }
+
+        int bsk_modulus_size = size + P_size;
+        if (calculate_bit_count(plain_modulus_.value) + coeff_bit_count +
+            32 >=
+            MAX_MOD_BIT_COUNT * size + MAX_MOD_BIT_COUNT)
+        {
+            bsk_modulus_size++;
+        }
+
+        return bsk_modulus_size;
+    }
+
     std::vector<Data64> HEContext<Scheme::BFV>::generate_base_matrix_q_Bsk(
         std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size)
     {
         std::vector<Data64> base_matrix_q_Bsk;
         for (int k = 0; k < bsk_mod.size(); k++)
+        {
+            for (int i = 0; i < size; i++)
+            {
+                Data64 temp = 1;
+                for (int j = 0; j < size; j++)
+                {
+                    if (i != j)
+                    {
+                        temp =
+                            OPERATOR64::mult(temp, primes[j].value, bsk_mod[k]);
+                    }
+                }
+                base_matrix_q_Bsk.push_back(temp);
+            }
+        }
+
+        return base_matrix_q_Bsk;
+    }
+
+    // @company CipherFlow
+    std::vector<Data64> HEContext<Scheme::BFV>::generate_base_matrix_q_Bsk(
+        std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size, int bsize)
+    {
+        std::vector<Data64> base_matrix_q_Bsk;
+        for (int k = 0; k < bsize; k++)
         {
             for (int i = 0; i < size; i++)
             {
@@ -1159,11 +1500,47 @@ namespace heongpu
         return prod_q_mod_Bsk;
     }
 
+    // @company CipherFlow
+    std::vector<Data64> HEContext<Scheme::BFV>::generate_prod_q_mod_Bsk(
+        std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size, int bsize)
+    {
+        std::vector<Data64> prod_q_mod_Bsk;
+        for (int i = 0; i < bsize; i++)
+        {
+            Data64 temp = 1;
+            for (int j = 0; j < size; j++)
+            {
+                temp = OPERATOR64::mult(temp, primes[j].value, bsk_mod[i]);
+            }
+            prod_q_mod_Bsk.push_back(temp);
+        }
+
+        return prod_q_mod_Bsk;
+    }
+
     std::vector<Data64> HEContext<Scheme::BFV>::generate_inv_prod_q_mod_Bsk(
         std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size)
     {
         std::vector<Data64> inv_prod_q_mod_Bsk;
         for (int i = 0; i < bsk_mod.size(); i++)
+        {
+            Data64 temp = 1;
+            for (int j = 0; j < size; j++)
+            {
+                temp = OPERATOR64::mult(temp, primes[j].value, bsk_mod[i]);
+            }
+            inv_prod_q_mod_Bsk.push_back(OPERATOR64::modinv(temp, bsk_mod[i]));
+        }
+
+        return inv_prod_q_mod_Bsk;
+    }
+
+    // @company CipherFlow
+    std::vector<Data64> HEContext<Scheme::BFV>::generate_inv_prod_q_mod_Bsk(
+        std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size, int bsize)
+    {
+        std::vector<Data64> inv_prod_q_mod_Bsk;
+        for (int i = 0; i < bsize; i++)
         {
             Data64 temp = 1;
             for (int j = 0; j < size; j++)
@@ -1200,6 +1577,31 @@ namespace heongpu
         return base_matrix_Bsk_q;
     }
 
+    // @company CipherFlow
+    std::vector<Data64> HEContext<Scheme::BFV>::generate_base_matrix_Bsk_q(
+        std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size, int bsize)
+    {
+        std::vector<Data64> base_matrix_Bsk_q;
+        for (int k = 0; k < size; k++)
+        {
+            for (int i = 0; i < bsize - 1; i++)
+            {
+                Data64 temp = 1;
+                for (int j = 0; j < bsize - 1; j++)
+                {
+                    if (i != j)
+                    {
+                        Data64 base = bsk_mod[j].value % primes[k].value;
+                        temp = OPERATOR64::mult(temp, base, primes[k]);
+                    }
+                }
+                base_matrix_Bsk_q.push_back(temp);
+            }
+        }
+
+        return base_matrix_Bsk_q;
+    }
+
     std::vector<Data64> HEContext<Scheme::BFV>::generate_base_change_matrix_msk(
         std::vector<Modulus64> bsk_mod)
     {
@@ -1213,6 +1615,28 @@ namespace heongpu
                 {
                     temp = OPERATOR64::mult(temp, bsk_mod[j].value,
                                             bsk_mod[bsk_mod.size() - 1]);
+                }
+            }
+            base_change_matrix_msk.push_back(temp);
+        }
+
+        return base_change_matrix_msk;
+    }
+
+    // @company CipherFlow
+    std::vector<Data64> HEContext<Scheme::BFV>::generate_base_change_matrix_msk(
+        std::vector<Modulus64> bsk_mod, int size)
+    {
+        std::vector<Data64> base_change_matrix_msk;
+        for (int i = 0; i < size - 1; i++)
+        {
+            Data64 temp = 1;
+            for (int j = 0; j < size - 1; j++)
+            {
+                if (i != j)
+                {
+                    temp = OPERATOR64::mult(temp, bsk_mod[j].value,
+                                            bsk_mod[size - 1]);
                 }
             }
             base_change_matrix_msk.push_back(temp);
@@ -1243,6 +1667,29 @@ namespace heongpu
         return inv_punctured_prod_mod_B_array;
     }
 
+    // @company CipherFlow
+    std::vector<Data64>
+    HEContext<Scheme::BFV>::generate_inv_punctured_prod_mod_B_array(
+        std::vector<Modulus64> bsk_mod, int size)
+    {
+        std::vector<Data64> inv_punctured_prod_mod_B_array;
+        for (int i = 0; i < size - 1; i++)
+        {
+            Data64 temp = 1;
+            for (int j = 0; j < size - 1; j++)
+            {
+                if (i != j)
+                {
+                    temp = OPERATOR64::mult(temp, bsk_mod[j].value, bsk_mod[i]);
+                }
+            }
+            inv_punctured_prod_mod_B_array.push_back(
+                OPERATOR64::modinv(temp, bsk_mod[i]));
+        }
+
+        return inv_punctured_prod_mod_B_array;
+    }
+
     Data64 HEContext<Scheme::BFV>::generate_inv_prod_B_mod_m_sk(
         std::vector<Modulus64> bsk_mod)
     {
@@ -1260,6 +1707,24 @@ namespace heongpu
         return inv_prod_B_mod_m_sk;
     }
 
+    // @company CipherFlow
+    Data64 HEContext<Scheme::BFV>::generate_inv_prod_B_mod_m_sk(
+        std::vector<Modulus64> bsk_mod, int size)
+    {
+        Data64 inv_prod_B_mod_m_sk = 1;
+        for (int i = 0; i < size - 1; i++)
+        {
+            inv_prod_B_mod_m_sk =
+                OPERATOR64::mult(inv_prod_B_mod_m_sk, bsk_mod[i].value,
+                                 bsk_mod[size - 1]);
+        }
+
+        inv_prod_B_mod_m_sk = OPERATOR64::modinv(inv_prod_B_mod_m_sk,
+                                                 bsk_mod[size - 1]);
+
+        return inv_prod_B_mod_m_sk;
+    }
+
     std::vector<Data64> HEContext<Scheme::BFV>::generate_prod_B_mod_q(
         std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size)
     {
@@ -1268,6 +1733,24 @@ namespace heongpu
         {
             Data64 temp = 1;
             for (int j = 0; j < bsk_mod.size() - 1; j++)
+            {
+                Data64 base = bsk_mod[j].value % primes[i].value;
+                temp = OPERATOR64::mult(temp, base, primes[i]);
+            }
+            prod_B_mod_q.push_back(temp);
+        }
+
+        return prod_B_mod_q;
+    }
+
+    std::vector<Data64> HEContext<Scheme::BFV>::generate_prod_B_mod_q(
+        std::vector<Modulus64> primes, std::vector<Modulus64> bsk_mod, int size, int bsize)
+    {
+        std::vector<Data64> prod_B_mod_q;
+        for (int i = 0; i < size; i++)
+        {
+            Data64 temp = 1;
+            for (int j = 0; j < bsize - 1; j++)
             {
                 Data64 base = bsk_mod[j].value % primes[i].value;
                 temp = OPERATOR64::mult(temp, base, primes[i]);

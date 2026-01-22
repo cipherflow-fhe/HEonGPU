@@ -79,7 +79,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,  
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_plain_inverse_->data(),
@@ -113,7 +113,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_plain_inverse_->data(),

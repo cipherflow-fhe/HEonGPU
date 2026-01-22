@@ -178,6 +178,98 @@ namespace heongpu
         }
     }
 
+    // @company CipherFlow
+    __global__ void
+    enc_div_lastq_bfv_kernel(Data64* pk, Data64* e, Data64* plain, Data64* ct,
+                             Modulus64* modulus, Data64* half, Data64* half_mod,
+                             Data64* last_q_modinv, Modulus64 plain_mod,
+                             Data64* Q_mod_t, Data64 upper_threshold,
+                             Data64* coeffdiv_plain, int n_power,
+                             int Q_prime_size, int Q_size, 
+                             int first_Q_prime_size, int first_Q_size, int P_size)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // Ring Sizes
+        int block_y = blockIdx.y; // Decomposition Modulus Count (Q_size)
+        int block_z = blockIdx.z; // Cipher Size (2)
+
+        // Max P size is 15.
+        Data64 last_pk[15];
+        for (int i = 0; i < P_size; i++)
+        {
+            Data64 last_pk_ = pk[idx + ((first_Q_size + i) << n_power) +
+                                 ((first_Q_prime_size << n_power) * block_z)];
+            Data64 last_e_ = e[idx + ((first_Q_size + i) << n_power) +
+                               ((first_Q_prime_size << n_power) * block_z)];
+            last_pk[i] =
+                OPERATOR_GPU_64::add(last_pk_, last_e_, modulus[first_Q_size + i]);
+        }
+
+        Data64 input_ = pk[idx + (block_y << n_power) +
+                           ((first_Q_prime_size << n_power) * block_z)];
+        Data64 e_ = e[idx + (block_y << n_power) +
+                      ((first_Q_prime_size << n_power) * block_z)];
+        input_ = OPERATOR_GPU_64::add(input_, e_, modulus[block_y]);
+
+        int location_ = 0;
+        for (int i = 0; i < P_size; i++)
+        {
+            Data64 last_pk_add_half_ = last_pk[(P_size - 1 - i)];
+            last_pk_add_half_ = OPERATOR_GPU_64::add(
+                last_pk_add_half_, half[i], modulus[(first_Q_prime_size - 1 - i)]);
+            for (int j = 0; j < (P_size - 1 - i); j++)
+            {
+                Data64 temp1 = OPERATOR_GPU_64::reduce_forced(
+                    last_pk_add_half_, modulus[first_Q_size + j]);
+
+                temp1 = OPERATOR_GPU_64::sub(temp1,
+                                             half_mod[location_ + first_Q_size + j],
+                                             modulus[first_Q_size + j]);
+
+                temp1 = OPERATOR_GPU_64::sub(last_pk[j], temp1,
+                                             modulus[first_Q_size + j]);
+
+                last_pk[j] = OPERATOR_GPU_64::mult(
+                    temp1, last_q_modinv[location_ + first_Q_size + j],
+                    modulus[first_Q_size + j]);
+            }
+
+            Data64 temp1 = OPERATOR_GPU_64::reduce_forced(last_pk_add_half_,
+                                                          modulus[block_y]);
+
+            temp1 = OPERATOR_GPU_64::sub(temp1, half_mod[location_ + block_y],
+                                         modulus[block_y]);
+
+            temp1 = OPERATOR_GPU_64::sub(input_, temp1, modulus[block_y]);
+
+            input_ = OPERATOR_GPU_64::mult(
+                temp1, last_q_modinv[location_ + block_y], modulus[block_y]);
+
+            location_ = location_ + (first_Q_prime_size - 1 - i);
+        }
+
+        if (block_z == 0)
+        {
+            Data64 message = plain[idx];
+            Data64 fix = message * Q_mod_t[0];
+            fix = fix + upper_threshold;
+            fix = int(fix / plain_mod.value);
+
+            Data64 ct_0 = OPERATOR_GPU_64::mult(
+                message, coeffdiv_plain[block_y], modulus[block_y]);
+            ct_0 = OPERATOR_GPU_64::add(ct_0, fix, modulus[block_y]);
+
+            input_ = OPERATOR_GPU_64::add(input_, ct_0, modulus[block_y]);
+
+            ct[idx + (block_y << n_power) + (((Q_size) << n_power) * block_z)] =
+                input_;
+        }
+        else
+        {
+            ct[idx + (block_y << n_power) + (((Q_size) << n_power) * block_z)] =
+                input_;
+        }
+    }
+
     __global__ void enc_div_lastq_ckks_kernel(Data64* pk, Data64* e, Data64* ct,
                                               Modulus64* modulus, Data64* half,
                                               Data64* half_mod,

@@ -80,12 +80,14 @@ namespace heongpu
     {
         DeviceVector<Data64> output_memory(n, stream);
 
-        Data64* ct0 = ciphertext.data();
-        Data64* ct1 = ciphertext.data() + (Q_size_ << n_power);
+        int current_decomp_count = Q_size_ - ciphertext.depth_; // @company CipherFlow
 
-        DeviceVector<Data64> temp_memory(2 * n * Q_size_, stream);
+        Data64* ct0 = ciphertext.data();
+        Data64* ct1 = ciphertext.data() + (current_decomp_count << n_power); // @company CipherFlow
+
+        DeviceVector<Data64> temp_memory(2 * n * current_decomp_count, stream); // @company CipherFlow
         Data64* ct0_temp = temp_memory.data();
-        Data64* ct1_temp = temp_memory.data() + (Q_size_ << n_power);
+        Data64* ct1_temp = temp_memory.data() + (current_decomp_count << n_power); // @company CipherFlow
 
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
@@ -97,25 +99,25 @@ namespace heongpu
         if (!ciphertext.in_ntt_domain_)
         {
             gpuntt::GPU_NTT(ct1, ct1_temp, ntt_table_->data(), modulus_->data(),
-                            cfg_ntt, Q_size_, Q_size_);
+                            cfg_ntt, current_decomp_count, current_decomp_count); // @company CipherFlow
 
-            sk_multiplication<<<dim3((n >> 8), Q_size_, 1), 256, 0, stream>>>(
+            sk_multiplication<<<dim3((n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
                 ct1_temp, secret_key_.data(), ct1_temp, modulus_->data(),
-                n_power, Q_size_);
+                n_power, current_decomp_count); // @company CipherFlow
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
         else
         {
-            sk_multiplication<<<dim3((n >> 8), Q_size_, 1), 256, 0, stream>>>(
+            sk_multiplication<<<dim3((n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
                 ct1, secret_key_.data(), ct1_temp, modulus_->data(), n_power,
-                Q_size_);
+                current_decomp_count); // @company CipherFlow
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,    
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -125,26 +127,36 @@ namespace heongpu
         {
             // TODO: merge these NTTs
             gpuntt::GPU_INTT(ct0, ct0_temp, intt_table_->data(),
-                            modulus_->data(), cfg_intt, Q_size_, Q_size_);
+                            modulus_->data(), cfg_intt, current_decomp_count, current_decomp_count); // @company CipherFlow
 
             gpuntt::GPU_INTT_Inplace(ct1_temp, intt_table_->data(),
-                                    modulus_->data(), cfg_intt, Q_size_,
-                                    Q_size_);
+                                    modulus_->data(), cfg_intt, current_decomp_count, 
+                                    current_decomp_count); // @company CipherFlow
 
             ct0 = ct0_temp;
         }
         else
         {
             gpuntt::GPU_INTT_Inplace(ct1_temp, intt_table_->data(),
-                                    modulus_->data(), cfg_intt, Q_size_,
-                                    Q_size_);
+                                    modulus_->data(), cfg_intt, current_decomp_count, 
+                                    current_decomp_count); // @company CipherFlow
         }
+
+        // @company CipherFlow begin ---
+        int counter = Q_size_;
+        int location1 = 0;
+        for (int i = 0; i < ciphertext.depth_; i++)
+        {
+            location1 += counter;
+            counter--;
+        }
+        // @company CipherFlow end ---
 
         decryption_kernel<<<dim3((n >> 8), 1, 1), 256, 0, stream>>>(
             ct0, ct1_temp, output_memory.data(), modulus_->data(),
-            plain_modulus_, gamma_, Qi_t_->data(), Qi_gamma_->data(),
-            Qi_inverse_->data(), mulq_inv_t_, mulq_inv_gamma_, inv_gamma_,
-            n_power, Q_size_);
+            plain_modulus_, gamma_, Qi_t_->data() + location1, Qi_gamma_->data() + location1,
+            Qi_inverse_->data() + location1, mulq_inv_t_->data() + ciphertext.depth_, mulq_inv_gamma_->data() + ciphertext.depth_, inv_gamma_,
+            n_power, current_decomp_count); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         plaintext.memory_set(std::move(output_memory));
@@ -155,9 +167,11 @@ namespace heongpu
                                             Ciphertext<Scheme::BFV>& ciphertext,
                                             const cudaStream_t stream)
     {
+        int current_decomp_count = Q_size_ - ciphertext.depth_; // @company CipherFlow
+
         Data64* ct0 = ciphertext.data();
-        Data64* ct1 = ciphertext.data() + (Q_size_ << n_power);
-        Data64* ct2 = ciphertext.data() + (Q_size_ << (n_power + 1));
+        Data64* ct1 = ciphertext.data() + (current_decomp_count << n_power); // @company CipherFlow
+        Data64* ct2 = ciphertext.data() + (current_decomp_count << (n_power + 1)); // @company CipherFlow
 
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
@@ -168,28 +182,38 @@ namespace heongpu
             .stream = stream};
 
         gpuntt::GPU_NTT_Inplace(ct1, ntt_table_->data(), modulus_->data(),
-                                cfg_ntt, 2 * Q_size_, Q_size_);
+                                cfg_ntt, 2 * current_decomp_count, current_decomp_count); // @company CipherFlow
 
-        sk_multiplicationx3<<<dim3((n >> 8), Q_size_, 1), 256, 0, stream>>>(
-            ct1, secret_key_.data(), modulus_->data(), n_power, Q_size_);
+        sk_multiplicationx3<<<dim3((n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ct1, secret_key_.data(), modulus_->data(), n_power, current_decomp_count); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,  
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
             .stream = stream};
 
         gpuntt::GPU_INTT_Inplace(ct1, intt_table_->data(), modulus_->data(),
-                                cfg_intt, 2 * Q_size_, Q_size_);
+                                cfg_intt, 2 * current_decomp_count, current_decomp_count); // @company CipherFlow
+        
+        // @company CipherFlow begin ---
+        int counter = Q_size_;
+        int location = 0;
+        for (int i = 0; i < ciphertext.depth_; i++)
+        {
+            location += counter;
+            counter--;
+        }
+        // @company CipherFlow end ---
 
         decryption_kernelx3<<<dim3((n >> 8), 1, 1), 256, 0, stream>>>(
             ct0, ct1, ct2, plaintext.data(), modulus_->data(), plain_modulus_,
-            gamma_, Qi_t_->data(), Qi_gamma_->data(), Qi_inverse_->data(),
-            mulq_inv_t_, mulq_inv_gamma_, inv_gamma_, n_power, Q_size_);
+            gamma_, Qi_t_->data() + location, Qi_gamma_->data() + location, Qi_inverse_->data()  + location,
+            mulq_inv_t_->data() + ciphertext.depth_, mulq_inv_gamma_->data() + ciphertext.depth_, inv_gamma_, n_power, current_decomp_count); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
     }
 
@@ -226,7 +250,7 @@ namespace heongpu
                 gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
                     .n_power = n_power,
                     .ntt_type = gpuntt::INVERSE,
-                    .ntt_layout = gpuntt::PerPolynomial,                    
+                    .ntt_layout = gpuntt::PerPolynomial,    
                     .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
                     .zero_padding = false,
                     .mod_inverse = n_inverse_->data(),

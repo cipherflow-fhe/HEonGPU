@@ -26,7 +26,11 @@ namespace heongpu
 
       private:
         int n_;
-        int m = 2;
+
+        /**
+         * @company CipherFlow
+         */
+        int m;
 
         std::vector<Modulus64> modulus_vector;
         std::vector<Modulus64> B_prime;

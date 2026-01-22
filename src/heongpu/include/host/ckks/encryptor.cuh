@@ -82,7 +82,8 @@ namespace heongpu
                             ciphertext.depth_ = 0;
                             ciphertext.in_ntt_domain_ = true;
                             ciphertext.scale_ = plaintext.scale_;
-                            ciphertext.rescale_required_ = false;
+                            ciphertext.rescale_required_ = ciphertext.coeff_modulus_count_ - (ciphertext.depth_ + 1) > 0 ? true: false; // @company CipherFlow
+                            // ciphertext.rescale_required_ = false;
                             ciphertext.relinearization_required_ = false;
                             ciphertext.ciphertext_generated_ = true;
                         },

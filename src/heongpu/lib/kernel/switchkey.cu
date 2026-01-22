@@ -1715,4 +1715,103 @@ namespace heongpu
         }
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __global__ void divide_round_lastq_permute_bfv_kernel(
+        Data64* input, Data64* ct, Data64* output, Modulus64* modulus,
+        Data64* half, Data64* half_mod, Data64* last_q_modinv, int galois_elt,
+        int n_power, int Q_prime_size, int Q_size, int first_Q_prime_size,
+        int first_Q_size, int P_size)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // Ring Sizes
+        int block_y = blockIdx.y; // Decomposition Modulus Count (Q_size)
+        int block_z = blockIdx.z; // Cipher Size (2)
+
+        // Max P size is 15.
+        Data64 last_ct[15];
+        for (int i = 0; i < P_size; i++)
+        {
+            last_ct[i] = input[idx + ((Q_size + i) << n_power) +
+                               ((Q_prime_size << n_power) * block_z)];
+        }
+
+        Data64 input_ = input[idx + (block_y << n_power) +
+                              ((Q_prime_size << n_power) * block_z)];
+
+        int location_ = 0;
+        for (int i = 0; i < P_size; i++)
+        {
+            Data64 last_ct_add_half_ = last_ct[(P_size - 1 - i)];
+            last_ct_add_half_ = OPERATOR_GPU_64::add(
+                last_ct_add_half_, half[i], modulus[(first_Q_prime_size - 1 - i)]);
+            for (int j = 0; j < (P_size - 1 - i); j++)
+            {
+                Data64 temp1 = OPERATOR_GPU_64::reduce_forced(
+                    last_ct_add_half_, modulus[first_Q_size + j]);
+                temp1 = OPERATOR_GPU_64::sub(temp1,
+                                             half_mod[location_ + first_Q_size + j],
+                                             modulus[first_Q_size + j]);
+
+                temp1 = OPERATOR_GPU_64::sub(last_ct[j], temp1,
+                                             modulus[first_Q_size + j]);
+
+                last_ct[j] = OPERATOR_GPU_64::mult(
+                    temp1, last_q_modinv[location_ + first_Q_size + j],
+                    modulus[first_Q_size + j]);
+            }
+
+            Data64 temp1 = OPERATOR_GPU_64::reduce_forced(last_ct_add_half_,
+                                                          modulus[block_y]);
+            temp1 = OPERATOR_GPU_64::sub(temp1, half_mod[location_ + block_y],
+                                         modulus[block_y]);
+
+            temp1 = OPERATOR_GPU_64::sub(input_, temp1, modulus[block_y]);
+
+            input_ = OPERATOR_GPU_64::mult(
+                temp1, last_q_modinv[location_ + block_y], modulus[block_y]);
+
+            location_ = location_ + (first_Q_prime_size - 1 - i);
+        }
+
+        if (block_z == 0)
+        {
+            Data64 ct_in = ct[idx + (block_y << n_power)];
+
+            ct_in = OPERATOR_GPU_64::add(ct_in, input_, modulus[block_y]);
+
+            //
+            int coeff_count_minus_one = (1 << n_power) - 1;
+
+            int index_raw = idx * galois_elt;
+            int index = index_raw & coeff_count_minus_one;
+
+            if ((index_raw >> n_power) & 1)
+            {
+                ct_in = (modulus[block_y].value - ct_in);
+            }
+            //
+
+            output[index + (block_y << n_power) +
+                   (((Q_size) << n_power) * block_z)] = ct_in;
+        }
+        else
+        {
+            //
+            int coeff_count_minus_one = (1 << n_power) - 1;
+
+            int index_raw = idx * galois_elt;
+            int index = index_raw & coeff_count_minus_one;
+
+            if ((index_raw >> n_power) & 1)
+            {
+                input_ = (modulus[block_y].value - input_);
+            }
+            //
+
+            output[index + (block_y << n_power) +
+                   (((Q_size) << n_power) * block_z)] = input_;
+        }
+    }
+
 } // namespace heongpu

@@ -53,6 +53,12 @@ namespace heongpu
         __host__ Relinkey(HEContext<Scheme::CKKS>& context);
 
         /**
+         * @company CipherFlow
+         */
+        __host__ Relinkey(HEContext<Scheme::CKKS>& context,
+                          const ExecutionOptions& options);
+
+        /**
          * @brief Stores the relinearization key in the device (GPU) memory.
          */
         void store_in_device(cudaStream_t stream = cudaStreamDefault);
@@ -86,6 +92,18 @@ namespace heongpu
          * key data.
          */
         Data64* data(size_t i);
+
+        // @company CipherFlow
+        cudaStream_t stream() const noexcept
+        {
+            return device_location_.stream();
+        }
+
+        // @company CipherFlow
+        void switch_stream(cudaStream_t stream)
+        {
+            device_location_.set_stream(stream);
+        }
 
         /**
          * @brief Copy constructor for creating a new Relinkey object by copying
@@ -516,6 +534,12 @@ namespace heongpu
          * @param shift_vec Vector of integers representing the allowed shifts
          * for rotations.
          */
+         /**
+         * @company CipherFlow
+         */
+        __host__ Galoiskey(HEContext<Scheme::CKKS>& context,
+                           const ExecutionOptions& options);
+                           
         __host__ Galoiskey(HEContext<Scheme::CKKS>& context,
                            std::vector<int>& shift_vec);
 
@@ -530,6 +554,13 @@ namespace heongpu
          */
         __host__ Galoiskey(HEContext<Scheme::CKKS>& context,
                            std::vector<uint32_t>& galois_elts);
+        
+        /**
+         * @company CipherFlow
+         */       
+        __host__ Galoiskey(HEContext<Scheme::CKKS>& context,
+                           std::vector<uint32_t>& galois_elts,
+                           const ExecutionOptions& options);
 
         /**
          * @brief Stores the galois key in the device (GPU) memory.
@@ -565,6 +596,22 @@ namespace heongpu
          * @return Data64* Pointer to the Galois key data for column rotation.
          */
         Data64* c_data();
+
+        // @company CipherFlow
+        cudaStream_t stream() const noexcept
+        {
+            return zero_device_location_.stream();
+        }
+
+        // @company CipherFlow
+        void switch_stream(cudaStream_t stream)
+        {
+            zero_device_location_.set_stream(stream);
+            for (const auto& [key, value] : device_location_)
+            {
+                device_location_[key].set_stream(stream);
+            }
+        }
 
         /**
          * @brief Copy constructor for creating a new Galoiskey object by
@@ -917,6 +964,12 @@ namespace heongpu
         __host__ Switchkey(HEContext<Scheme::CKKS>& context);
 
         /**
+         * @company CipherFlow
+         */
+        __host__ Switchkey(HEContext<Scheme::CKKS>& context, 
+                            const ExecutionOptions& options);
+
+        /**
          * @brief Stores the switch key in the device (GPU) memory.
          */
         void store_in_device(cudaStream_t stream = cudaStreamDefault);
@@ -940,6 +993,18 @@ namespace heongpu
          * @return Data64* Pointer to the switch key data.
          */
         Data64* data();
+
+        // @company CipherFlow
+        cudaStream_t stream() const noexcept
+        {
+            return device_location_.stream();
+        }
+
+        // @company CipherFlow
+        void switch_stream(cudaStream_t stream)
+        {
+            device_location_.set_stream(stream);
+        }
 
         Switchkey() = default;
         Switchkey(const Switchkey& copy) = default;

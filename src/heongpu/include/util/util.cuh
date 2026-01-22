@@ -56,7 +56,7 @@ namespace heongpu
 
     bool coefficient_validator(const std::vector<int>& log_Q_bases_bit_sizes,
                                const std::vector<int>& log_P_bases_bit_sizes);
-
+    
     enum class SineType
     {
         COS1,
@@ -256,7 +256,7 @@ namespace heongpu
                                               int chunk_size);
 
     std::vector<std::vector<int>> seperate_func(const std::vector<int>& A);
-
+    
     std::vector<std::vector<int>> bsgs_index(const std::vector<int>& array,
                                              int N1, std::vector<int>& rot_n1,
                                              std::vector<int>& rot_n2);
@@ -304,7 +304,7 @@ namespace heongpu
     //////////////////////////////////////////////////////////////////////////////////
     //////////////////////////////////////////////////////////////////////////////////
 
-    static __device__ __forceinline__ uint32_t warp_reduce(uint32_t input)
+     static __device__ __forceinline__ uint32_t warp_reduce(uint32_t input)
     {
         for (int offset = warpSize / 2; offset > 0; offset >>= 1)
         {

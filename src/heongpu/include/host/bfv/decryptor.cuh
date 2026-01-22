@@ -68,10 +68,21 @@ namespace heongpu
                     output_storage_manager(
                         plaintext,
                         [&](Plaintext<Scheme::BFV>& plaintext_)
-                        {
-                            decrypt_bfv(plaintext_, ciphertext_,
-                                        options.stream_);
-
+                        {   
+                            // @company CipherFlow begin ---
+                            if (ciphertext_.cipher_size_ == 2) {
+                                decrypt_bfv(plaintext_, ciphertext_,
+                                            options.stream_);
+                            } else if (ciphertext_.cipher_size_ == 3)
+                            {
+                                decryptx3_bfv(plaintext_, ciphertext_,
+                                              options.stream_);
+                            } else {
+                                throw std::invalid_argument(
+                                    "Invalid ciphertext size for BFV decryption!");
+                            }
+                            // @company CipherFlow end ---
+                            
                             plaintext.plain_size_ = n;
                             plaintext.scheme_ = scheme_;
                             plaintext.in_ntt_domain_ = false;
@@ -179,9 +190,13 @@ namespace heongpu
 
         std::shared_ptr<DeviceVector<Data64>> Qi_inverse_;
 
-        Data64 mulq_inv_t_;
+        std::shared_ptr<DeviceVector<Data64>> mulq_inv_t_; // @company CipherFlow
 
-        Data64 mulq_inv_gamma_;
+        std::shared_ptr<DeviceVector<Data64>> mulq_inv_gamma_; // @company CipherFlow
+
+        // Data64 mulq_inv_t_; // @company CipherFlow
+
+        // Data64 mulq_inv_gamma_; // @company CipherFlow
 
         Data64 inv_gamma_;
 

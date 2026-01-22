@@ -17,10 +17,58 @@ namespace heongpu
         }
 
         scheme_ = context.scheme_;
-        plain_size_ = context.n;
-        depth_ = 0;
+        plain_size_ = context.n * context.Q_size; // @company CipherFlow
+        depth_ = context.Q_size-1; // @company CipherFlow
         scale_ = 0;
         storage_type_ = options.storage_;
+
+        coeff_modulus_count_ = context.Q_size; // @company CipherFlow
+        is_ringt_ = false; // @company CipherFlow
+
+        /**
+         * @company CipherFlow
+         */
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_locations_ =
+                DeviceVector<Data64>(plain_size_, options.stream_);
+        }
+        else
+        {
+            host_locations_ = HostVector<Data64>(plain_size_);
+        }
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__
+    Plaintext<Scheme::CKKS>::Plaintext(HEContext<Scheme::CKKS>& context, int level,
+                                       const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        depth_ = context.Q_size - (level+1);
+        plain_size_ = context.n * (level+1);
+        scale_ = 0;
+        storage_type_ = options.storage_;
+
+        coeff_modulus_count_ = context.Q_size; 
+        is_ringt_ = false; 
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_locations_ =
+                DeviceVector<Data64>(plain_size_, options.stream_);
+        }
+        else
+        {
+            host_locations_ = HostVector<Data64>(plain_size_);
+        }
     }
 
     void Plaintext<Scheme::CKKS>::store_in_device(cudaStream_t stream)
@@ -102,6 +150,10 @@ namespace heongpu
 
             os.write((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
 
+            os.write((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_)); // @company CipherFlow
+
+            os.write((char*) &is_ringt_, sizeof(is_ringt_)); // @company CipherFlow
+
             os.write((char*) &plaintext_generated_,
                      sizeof(plaintext_generated_));
 
@@ -152,6 +204,10 @@ namespace heongpu
             is.read((char*) &scale_, sizeof(scale_));
 
             is.read((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
+
+            is.read((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_)); // @company CipherFlow
+
+            is.read((char*) &is_ringt_, sizeof(is_ringt_)); // @company CipherFlow
 
             is.read((char*) &plaintext_generated_,
                     sizeof(plaintext_generated_));

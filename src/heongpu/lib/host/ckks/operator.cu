@@ -341,7 +341,7 @@ namespace heongpu
         Ciphertext<Scheme::CKKS>& input1, Plaintext<Scheme::CKKS>& input2,
         Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
     {
-        if (input1.depth_ != input2.depth_)
+        if (!input2.is_ringt_ && input1.depth_ != input2.depth_) // @company CipherFlow
         {
             throw std::logic_error("Ciphertexts leveled are not equal");
         }
@@ -355,10 +355,42 @@ namespace heongpu
             throw std::invalid_argument("Invalid Ciphertexts size!");
         }
 
-        if (input2.size() < (n * current_decomp_count))
+        if ((!input2.is_ringt_ && input2.size() < (n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < n)) // @company CipherFlow
         {
             throw std::invalid_argument("Invalid Plaintext size!");
         }
+
+        // @company CipherFlow begin ---
+        Data64* plaintext_data = input2.data();
+
+        // Move converted_plaintext outside if-scope to ensure its lifetime
+        // covers the addition kernel execution (fix dangling pointer bug)
+        DeviceVector<Data64> converted_plaintext;
+
+        if (input2.is_ringt_) {
+            converted_plaintext.resize(n * current_decomp_count, stream);
+
+            // Call ringt_to_pt_kernel
+            ringt_to_pt_kernel<<<dim3((n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+                input2.data(), converted_plaintext.data(), modulus_->data(),
+                n_power);
+            HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+            // Apply NTT to converted plaintext
+            gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+                .n_power = n_power,
+                .ntt_type = gpuntt::FORWARD,
+                .ntt_layout = gpuntt::PerPolynomial,  
+                .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+                .zero_padding = false,
+                .stream = stream};
+
+            gpuntt::GPU_NTT_Inplace(converted_plaintext.data(), ntt_table_->data(),
+                                    modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+
+            plaintext_data = converted_plaintext.data();
+        }
+        // @company CipherFlow end ---
 
         DeviceVector<Data64> output_memory(
             (cipher_size * n * current_decomp_count), stream);
@@ -366,7 +398,7 @@ namespace heongpu
         addition_plain_ckks_poly<<<dim3((n >> 8), current_decomp_count,
                                         cipher_size),
                                    256, 0, stream>>>(
-            input1.data(), input2.data(), output_memory.data(),
+            input1.data(), plaintext_data, output_memory.data(), // @company CipherFlow
             modulus_->data(), n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
@@ -456,7 +488,7 @@ namespace heongpu
         Ciphertext<Scheme::CKKS>& input1, Plaintext<Scheme::CKKS>& input2,
         Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
     {
-        if (input1.depth_ != input2.depth_)
+        if (!input2.is_ringt_ && input1.depth_ != input2.depth_) // @company CipherFlow
         {
             throw std::logic_error("Ciphertexts leveled are not equal");
         }
@@ -470,10 +502,42 @@ namespace heongpu
             throw std::invalid_argument("Invalid Ciphertexts size!");
         }
 
-        if (input2.size() < (n * current_decomp_count))
+        if ((!input2.is_ringt_ && input2.size() < (n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < n)) // @company CipherFlow
         {
             throw std::invalid_argument("Invalid Plaintext size!");
         }
+
+        // @company CipherFlow begin ---
+        Data64* plaintext_data = input2.data();
+
+        // Move converted_plaintext outside if-scope to ensure its lifetime
+        // covers the subtraction kernel execution (fix dangling pointer bug)
+        DeviceVector<Data64> converted_plaintext;
+
+        if (input2.is_ringt_) {
+            converted_plaintext.resize(n * current_decomp_count, stream);
+
+            // Call ringt_to_pt_kernel
+            ringt_to_pt_kernel<<<dim3((n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+                input2.data(), converted_plaintext.data(), modulus_->data(),
+                n_power);
+            HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+            // Apply NTT to converted plaintext
+            gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+                .n_power = n_power,
+                .ntt_type = gpuntt::FORWARD,
+                .ntt_layout = gpuntt::PerPolynomial,  
+                .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+                .zero_padding = false,
+                .stream = stream};
+
+            gpuntt::GPU_NTT_Inplace(converted_plaintext.data(), ntt_table_->data(),
+                                    modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+
+            plaintext_data = converted_plaintext.data();
+        }
+        // @company CipherFlow end ---
 
         DeviceVector<Data64> output_memory(
             (cipher_size * n * current_decomp_count), stream);
@@ -481,7 +545,7 @@ namespace heongpu
         substraction_plain_ckks_poly<<<dim3((n >> 8), current_decomp_count,
                                             cipher_size),
                                        256, 0, stream>>>(
-            input1.data(), input2.data(), output_memory.data(),
+            input1.data(), plaintext_data, output_memory.data(), // @company CipherFlow
             modulus_->data(), n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
@@ -830,18 +894,52 @@ namespace heongpu
         Ciphertext<Scheme::CKKS>& input1, Plaintext<Scheme::CKKS>& input2,
         Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
     {
-        if (input1.depth_ != input2.depth_)
+        if (!input2.is_ringt_ && input1.depth_ != input2.depth_) // @company CipherFlow
         {
             throw std::logic_error("Ciphertexts leveled are not equal");
         }
 
         int current_decomp_count = Q_size_ - input1.depth_;
+
+        // @company CipherFlow begin ---
+        Data64* plaintext_data = input2.data();
+
+        // Move converted_plaintext outside if-scope to ensure its lifetime
+        // covers the multiplication kernel execution (fix dangling pointer bug)
+        DeviceVector<Data64> converted_plaintext;
+
+        // If input2 is in ringt format, convert it to pt format
+        if (input2.is_ringt_) {
+            converted_plaintext.resize(n * current_decomp_count, stream);
+
+            // Call ringt_to_pt_kernel
+            ringt_to_pt_kernel<<<dim3((n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+                input2.data(), converted_plaintext.data(), modulus_->data(),
+                n_power);
+            HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+            // Apply NTT to converted plaintext
+            gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+                .n_power = n_power,
+                .ntt_type = gpuntt::FORWARD,
+                .ntt_layout = gpuntt::PerPolynomial,   
+                .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+                .zero_padding = false,
+                .stream = stream};
+
+            gpuntt::GPU_NTT_Inplace(converted_plaintext.data(), ntt_table_->data(),
+                                    modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+
+            plaintext_data = converted_plaintext.data();
+        }
+        // @company CipherFlow end ---
+
         DeviceVector<Data64> output_memory((2 * n * current_decomp_count),
                                            stream);
 
         cipherplain_multiplication_kernel<<<
             dim3((n >> 8), current_decomp_count, 2), 256, 0, stream>>>(
-            input1.data(), input2.data(), output_memory.data(),
+            input1.data(), plaintext_data, output_memory.data(), // @company CipherFlow
             modulus_->data(), n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
@@ -892,7 +990,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -919,7 +1017,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -962,7 +1060,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt2 = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data() + first_decomp_count,
@@ -1008,7 +1106,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -1062,7 +1160,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1104,7 +1202,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt2 = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = B_prime_n_inverse_leveled_->data(),
@@ -1164,7 +1262,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -1207,7 +1305,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1265,6 +1363,128 @@ namespace heongpu
         HEONGPU_CUDA_CHECK(cudaGetLastError());
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__ void
+    HEOperator<Scheme::CKKS>::relinearize_external_product_method2_ckks(
+        Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output, 
+        Relinkey<Scheme::CKKS>& relin_key, const cudaStream_t stream)
+    {
+        int first_rns_mod_count = Q_prime_size_;
+        int current_rns_mod_count = Q_prime_size_ - input1.depth_;
+
+        int first_decomp_count = Q_size_;
+        int current_decomp_count = Q_size_ - input1.depth_;
+
+        DeviceVector<Data64> output_memory((2 * n * current_decomp_count), stream);
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::INVERSE,
+            .ntt_layout = gpuntt::PerPolynomial,   
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .mod_inverse = n_inverse_->data(),
+            .stream = stream};
+
+        int counter = first_rns_mod_count;
+        int location = 0;
+        for (int j = 0; j < input1.depth_; j++)
+        {
+            location += counter;
+            counter--;
+        }
+
+        gpuntt::GPU_INTT_Inplace(input1.data() +
+                                    (current_decomp_count << (n_power + 1)),
+                                intt_table_->data(), modulus_->data(), cfg_intt,
+                                current_decomp_count, current_decomp_count);
+
+        DeviceVector<Data64> temp_relin(
+            (n * Q_size_ * Q_prime_size_) + (2 * n * Q_prime_size_), stream);
+        Data64* temp1_relin = temp_relin.data();
+        Data64* temp2_relin = temp1_relin + (n * Q_size_ * Q_prime_size_);
+
+        base_conversion_DtoQtilde_relin_leveled_kernel<<<
+            dim3((n >> 8), d_leveled_->operator[](input1.depth_), 1), 256, 0,
+            stream>>>(
+            input1.data() + (current_decomp_count << (n_power + 1)),
+            temp1_relin, modulus_->data(),
+            base_change_matrix_D_to_Qtilda_leveled_->operator[](input1.depth_)
+                .data(),
+            Mi_inv_D_to_Qtilda_leveled_->operator[](input1.depth_).data(),
+            prod_D_to_Qtilda_leveled_->operator[](input1.depth_).data(),
+            I_j_leveled_->operator[](input1.depth_).data(),
+            I_location_leveled_->operator[](input1.depth_).data(), n_power,
+            d_leveled_->operator[](input1.depth_), current_rns_mod_count,
+            current_decomp_count, input1.depth_,
+            prime_location_leveled_->data() + location);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::FORWARD,
+            .ntt_layout = gpuntt::PerPolynomial,   
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .stream = stream};
+
+        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+            temp1_relin, ntt_table_->data(), modulus_->data(), cfg_ntt,
+            d_leveled_->operator[](input1.depth_) * current_rns_mod_count,
+            current_rns_mod_count, new_prime_locations + location);
+
+        // TODO: make it efficient
+        int iteration_count_1 = d_leveled_->operator[](input1.depth_) / 4;
+        int iteration_count_2 = d_leveled_->operator[](input1.depth_) % 4;
+        if (relin_key.storage_type_ == storage_type::DEVICE)
+        {
+            keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
+                dim3((n >> 8), current_rns_mod_count, 1), 256, 0, stream>>>(
+                temp1_relin, relin_key.data(), temp2_relin, modulus_->data(),
+                first_rns_mod_count, current_decomp_count,
+                current_rns_mod_count, iteration_count_1, iteration_count_2,
+                input1.depth_, n_power);
+            HEONGPU_CUDA_CHECK(cudaGetLastError());
+        }
+        else
+        {
+            DeviceVector<Data64> key_location(relin_key.host_location_, stream);
+            keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
+                dim3((n >> 8), current_rns_mod_count, 1), 256, 0, stream>>>(
+                temp1_relin, key_location.data(), temp2_relin, modulus_->data(),
+                first_rns_mod_count, current_decomp_count,
+                current_rns_mod_count, iteration_count_1, iteration_count_2,
+                input1.depth_, n_power);
+            HEONGPU_CUDA_CHECK(cudaGetLastError());
+        }
+
+        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+            temp2_relin, intt_table_->data(), modulus_->data(), cfg_intt,
+            2 * current_rns_mod_count, current_rns_mod_count,
+            new_prime_locations + location);
+
+        divide_round_lastq_extended_leveled_kernel<<<
+            dim3((n >> 8), current_decomp_count, 2), 256, 0, stream>>>(
+            temp2_relin, temp1_relin, modulus_->data(), half_p_->data(),
+            half_mod_->data(), last_q_modinv_->data(), n_power,
+            current_rns_mod_count, current_decomp_count, first_rns_mod_count,
+            first_decomp_count, P_size_);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        gpuntt::GPU_NTT_Inplace(temp1_relin, ntt_table_->data(),
+                                modulus_->data(), cfg_ntt,
+                                2 * current_decomp_count, current_decomp_count);
+
+        addition<<<dim3((n >> 8), current_decomp_count, 2), 256, 0, stream>>>(
+            temp1_relin, input1.data(), output_memory.data(), modulus_->data(),
+            n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        output.memory_set(std::move(output_memory));
+    }
+
     __host__ void HEOperator<Scheme::CKKS>::rescale_inplace_ckks_leveled(
         Ciphertext<Scheme::CKKS>& input1, const cudaStream_t stream)
     {
@@ -1274,7 +1494,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data() + (current_decomp_count - 1),
@@ -1283,7 +1503,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1341,6 +1561,90 @@ namespace heongpu
         }
 
         input1.depth_++;
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__ void HEOperator<Scheme::CKKS>::rescale_ckks_leveled(
+        Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
+    {
+        int first_decomp_count = Q_size_;
+        int current_decomp_count = Q_size_ - input1.depth_;
+
+        DeviceVector<Data64> output_memory((2 * n * current_decomp_count), stream);
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::INVERSE,
+            .ntt_layout = gpuntt::PerPolynomial,   
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .mod_inverse = n_inverse_->data() + (current_decomp_count - 1),
+            .stream = stream};
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::FORWARD,
+            .ntt_layout = gpuntt::PerPolynomial,   
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .stream = stream};
+
+        // int counter = first_rns_mod_count - 2;
+        int counter = first_decomp_count - 1;
+        int location = 0;
+        for (int i = 0; i < input1.depth_; i++)
+        {
+            location += counter;
+            counter--;
+        }
+
+        DeviceVector<Data64> temp_rescale(
+            (2 * n * Q_prime_size_) + (2 * n * Q_prime_size_), stream);
+        Data64* temp1_rescale = temp_rescale.data();
+        Data64* temp2_rescale = temp1_rescale + (2 * n * Q_prime_size_);
+
+        gpuntt::GPU_NTT_Poly_Ordered_Inplace(
+            input1.data(),
+            intt_table_->data() + ((current_decomp_count - 1) << n_power),
+            modulus_->data() + (current_decomp_count - 1), cfg_intt, 2, 1,
+            new_input_locations + ((input1.depth_ + P_size_) * 2));
+
+        divide_round_lastq_leveled_stage_one_kernel<<<dim3((n >> 8), 2, 1), 256,
+                                                      0, stream>>>(
+            input1.data(), temp1_rescale, modulus_->data(),
+            rescaled_half_->data() + input1.depth_,
+            rescaled_half_mod_->data() + location, n_power,
+            current_decomp_count - 1, current_decomp_count - 1);
+
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        gpuntt::GPU_NTT_Inplace(
+            temp1_rescale, ntt_table_->data(), modulus_->data(), cfg_ntt,
+            2 * (current_decomp_count - 1), (current_decomp_count - 1));
+
+        move_cipher_leveled_kernel<<<
+            dim3((n >> 8), current_decomp_count - 1, 2), 256, 0, stream>>>(
+            input1.data(), temp2_rescale, n_power, current_decomp_count - 1);
+
+        divide_round_lastq_rescale_kernel<<<
+            dim3((n >> 8), current_decomp_count - 1, 2), 256, 0, stream>>>(
+            temp1_rescale, temp2_rescale, output_memory.data(), modulus_->data(),
+            rescaled_last_q_modinv_->data() + location, n_power,
+            current_decomp_count - 1);
+
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        output.memory_set(std::move(output_memory));
+
+        if (scheme_ == scheme_type::ckks)
+        {
+            output.scale_ = input1.scale_ /
+                            static_cast<double>(
+                                prime_vector_[current_decomp_count - 1].value);
+        }
+
     }
 
     __host__ void HEOperator<Scheme::CKKS>::mod_drop_ckks_leveled_inplace(
@@ -1537,7 +1841,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -1557,7 +1861,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1653,7 +1957,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -1666,7 +1970,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1786,7 +2090,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -1806,7 +2110,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1850,7 +2154,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt2 = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data() + first_decomp_count,
@@ -1920,7 +2224,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -1939,7 +2243,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -2058,7 +2362,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -2078,7 +2382,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -2174,7 +2478,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -2187,7 +2491,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -2492,7 +2796,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = 0};
@@ -2535,7 +2839,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,   
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = 0};
@@ -2707,6 +3011,85 @@ namespace heongpu
         return result;
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__ std::vector<heongpu::DeviceVector<Data64>>
+    HEOperator<Scheme::CKKS>::encode_V_matrixs(VandermondeCF& vandermonde,
+                                               int start_level)
+    {
+        std::vector<heongpu::DeviceVector<Data64>> result;
+
+        int rns_count_base = start_level + 1;
+
+        for (int m = 0; m < vandermonde.StoC_piece_; m++)
+        {
+            int current_rns_count = rns_count_base - m;
+
+            heongpu::DeviceVector<Data64> temp_encoded(
+                (vandermonde.V_matrixs_index_[m].size() * current_rns_count)
+                << (vandermonde.log_num_slots_ + 1));
+
+            double scale = static_cast<double>(prime_vector_[current_rns_count-1].value);
+
+            for (int i = 0; i < vandermonde.V_matrixs_index_[m].size(); i++)
+            {
+                int matrix_location = (i << vandermonde.log_num_slots_);
+                int plaintext_location =
+                    ((i * current_rns_count) << (vandermonde.log_num_slots_ + 1));
+
+                quick_ckks_encoder_vec_complex(
+                    vandermonde.V_matrixs_rotated_[m].data() + matrix_location,
+                    temp_encoded.data() + plaintext_location, scale,
+                    current_rns_count);
+            }
+
+            result.push_back(std::move(temp_encoded));
+        }
+
+        return result;
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__ std::vector<heongpu::DeviceVector<Data64>>
+    HEOperator<Scheme::CKKS>::encode_V_inv_matrixs(VandermondeCF& vandermonde,
+                                                   int start_level)
+    {
+        std::vector<heongpu::DeviceVector<Data64>> result;
+
+        int rns_count_base = start_level + 1;
+
+        for (int m = 0; m < vandermonde.CtoS_piece_; m++)
+        {
+            int current_rns_count = rns_count_base - m;
+
+            heongpu::DeviceVector<Data64> temp_encoded(
+                (vandermonde.V_inv_matrixs_index_[m].size() * current_rns_count)
+                << (vandermonde.log_num_slots_ + 1));
+
+            double scale = static_cast<double>(prime_vector_[current_rns_count-1].value);
+
+            for (int i = 0; i < vandermonde.V_inv_matrixs_index_[m].size(); i++)
+            {
+                int matrix_location = (i << vandermonde.log_num_slots_);
+                int plaintext_location =
+                    ((i * current_rns_count) << (vandermonde.log_num_slots_ + 1));
+
+                quick_ckks_encoder_vec_complex(
+                    vandermonde.V_inv_matrixs_rotated_[m].data() +
+                        matrix_location,
+                    temp_encoded.data() + plaintext_location, scale,
+                    current_rns_count);
+            }
+
+            result.push_back(std::move(temp_encoded));
+        }
+
+        return result;
+    }
+
     __host__ Ciphertext<Scheme::CKKS> HEOperator<Scheme::CKKS>::multiply_matrix(
         Ciphertext<Scheme::CKKS>& cipher,
         std::vector<heongpu::DeviceVector<Data64>>& matrix,
@@ -2816,31 +3199,29 @@ namespace heongpu
             old_stream); // TODO: Change copy and assign structure!
 
         int matrix_count = diags_matrices_bsgs_.size();
-        for (int m = (matrix_count - 1); - 1 < m; m--)
+        for (int m = 0; m < matrix_count; m++) // @company CipherFlow
         {
-            // int n1 = diags_matrices_bsgs_[m][0].size();
             int current_level = result.depth_;
             int current_decomp_count = (Q_size_ - current_level);
 
-            std::sort(diags_matrices_bsgs_rot_n2_[m].begin(),
+            std::sort(diags_matrices_bsgs_rot_n2_[m].begin(), 
                       diags_matrices_bsgs_rot_n2_[m].end());
 
             DeviceVector<Data64> rotated_result =
                 fast_single_hoisting_rotation_ckks(
-                    result, diags_matrices_bsgs_rot_n2_[m],
+                    result, diags_matrices_bsgs_rot_n2_[m], 
                     diags_matrices_bsgs_rot_n2_[m].size(), galois_key,
                     options.stream_);
 
             int counter = 0;
             for (int j = 0; j < diags_matrices_bsgs_[m].size(); j++)
             {
-                // int real_shift = diags_matrices_bsgs_[m][j][0];
                 int real_shift = diags_matrices_bsgs_rot_n1_[m][j];
 
                 std::vector<int> real_n2_shift;
-                for (int k = 0; k < diags_matrices_bsgs_[m][j].size(); k++)
+                for (int k = 0; k < diags_matrices_bsgs_[m][j].size(); k++) 
                 {
-                    real_n2_shift.push_back(diags_matrices_bsgs_[m][j][k] -
+                    real_n2_shift.push_back(diags_matrices_bsgs_[m][j][k] - 
                                             real_shift);
                 }
 
@@ -2848,7 +3229,7 @@ namespace heongpu
                     (2 * current_decomp_count * real_n2_shift.size())
                         << n_power,
                     options.stream_);
-                for (int k = 0; k < real_n2_shift.size(); k++)
+                for (int k = 0; k < real_n2_shift.size(); k++) 
                 {
                     auto it = std::find(diags_matrices_bsgs_rot_n2_[m].begin(),
                                         diags_matrices_bsgs_rot_n2_[m].end(),
@@ -2914,9 +3295,9 @@ namespace heongpu
                 }
             }
 
-            double scale =
+            double scale = 
                 static_cast<double>(prime_vector_[current_decomp_count].value);
-
+            
             result.scale_ = result.scale_ * scale;
             result.rescale_required_ = true;
             rescale_inplace(result, options);
@@ -3301,7 +3682,7 @@ namespace heongpu
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = options.stream_};
-
+        
         mod_raise_kernel_v2<<<dim3((n >> 8), Q_size_, 2), 256, 0,
                               options.stream_>>>(cipher_intt_poly.data(),
                                                  c_raised.data(),
@@ -3317,7 +3698,7 @@ namespace heongpu
             switchkey_ckks_method_II(c_raised, c_raised, *swk_sparse_to_dense,
                                      options.stream_);
         }
-
+       
         return c_raised;
     }
 
@@ -3533,12 +3914,12 @@ namespace heongpu
         double prev_scale = cipher.scale_;
         Ciphertext<Scheme::CKKS> cipher_taylor = cipher;
         cipher_taylor.scale_ = eval_mod_config_.scaling_factor_;
-
+        
         double target_scale = eval_mod_config_.scaling_factor_;
-        for (int i = 0; i < eval_mod_config_.double_angle_; i++)
+        for (int i = 0; i < eval_mod_config_.double_angle_; i++) 
         {
-            int modulus_index = eval_mod_config_.level_start_ -
-                                sine_poly_.depth() -
+            int modulus_index = eval_mod_config_.level_start_ - 
+                                sine_poly_.depth() - 
                                 eval_mod_config_.double_angle_ + i + 1;
             Data64 qi = prime_vector_[modulus_index].value;
             target_scale = std::sqrt(target_scale * static_cast<double>(qi));
@@ -3552,7 +3933,7 @@ namespace heongpu
 
         cipher_taylor = evaluate_poly(cipher_taylor, target_scale, sine_poly_,
                                       relin_key, options);
-
+        
         double sqrt2pi = eval_mod_config_.sqrt2pi_;
         for (int i = 0; i < eval_mod_config_.double_angle_; i++)
         {
@@ -3573,8 +3954,8 @@ namespace heongpu
         std::unordered_map<int, Ciphertext<Scheme::CKKS>>& cipher, int power,
         Relinkey<Scheme::CKKS>& relin_key, const ExecutionOptions& options)
     {
-        if (cipher.count(power))
-        {
+       if (cipher.count(power)) 
+       {
             return;
         }
 
@@ -3587,7 +3968,7 @@ namespace heongpu
             b = power / 2;
         }
         else
-        {
+        {            
             int k = int(std::ceil(std::log2(power))) - 1;
             a = (1 << k) - 1;
             b = power + 1 - (1 << k);
@@ -3600,38 +3981,38 @@ namespace heongpu
 
         gen_power(cipher, a, relin_key, options);
         gen_power(cipher, b, relin_key, options);
-
+        
         int x = cipher[a].level();
         int y = cipher[b].level();
-        if (x != y)
+        if (x != y) 
         {
             Ciphertext<Scheme::CKKS> tmp = cipher[a];
             Ciphertext<Scheme::CKKS> tmp1 = cipher[b];
 
-            if (x < y)
+            if (x < y) 
             {
-                for (int i = x; i < y; i++)
+                for (int i = x; i < y; i++) 
                 {
                     mod_drop_inplace(tmp1, options);
                 }
-            }
-            else
+            } 
+            else 
             {
-                for (int i = y; i < x; i++)
+                for (int i = y; i < x; i++) 
                 {
                     mod_drop_inplace(tmp, options);
                 }
             }
             multiply(tmp, tmp1, cipher[power], options);
-        }
-        else
+        } 
+        else 
         {
             multiply(cipher[a], cipher[b], cipher[power], options);
         }
 
         relinearize_inplace(cipher[power], relin_key, options);
         rescale_inplace(cipher[power], options);
-
+        
         if (eval_mod_config_.poly_type_ == PolyType::CHEBYSHEV)
         {
             add_inplace(cipher[power], cipher[power], options);
@@ -3681,7 +4062,7 @@ namespace heongpu
     HEOperator<Scheme::CKKS>::evaluate_poly_from_polynomial_basis(
         double target_scale, int target_level, const Polynomial& pol,
         std::unordered_map<int, Ciphertext<Scheme::CKKS>>& powered_ciphers,
-        const ExecutionOptions& options)
+        const ExecutionOptions& options) 
     {
         Ciphertext<Scheme::CKKS> result =
             operator_ciphertext(0, options.stream_);
@@ -3697,7 +4078,6 @@ namespace heongpu
         result.coeff_modulus_count_ = Q_size_;
         result.cipher_size_ = 2;
         result.depth_ = Q_size_ - (target_level + 1);
-        ;
         result.scale_ = target_scale;
         result.in_ntt_domain_ = true;
         result.rescale_required_ = true;
@@ -3706,7 +4086,7 @@ namespace heongpu
 
         add_plain_v2(result, pol.coeffs_[0], result, options);
 
-        for (int i = 1; i <= pol.degree(); i++)
+        for (int i = 1; i <= pol.degree(); i++) 
         {
             Ciphertext<Scheme::CKKS> xi_term = powered_ciphers[i];
 
@@ -3729,7 +4109,7 @@ namespace heongpu
 
             int a = result.level();
             int b = xi_term.level();
-
+            
             if (a != b)
             {
                 Ciphertext<Scheme::CKKS> tmp = xi_term;
@@ -3760,7 +4140,7 @@ namespace heongpu
         return result;
     }
 
-    __host__ Ciphertext<Scheme::CKKS>
+   __host__ Ciphertext<Scheme::CKKS>
     HEOperator<Scheme::CKKS>::evaluate_poly_recurse(
         int target_level, double target_scale, const Polynomial& pol,
         int log_split,
@@ -3920,7 +4300,7 @@ namespace heongpu
         int log_split = optimal_split(log_degree);
 
         // Baby-step: Generate powers x^1, x^2, ..., x^(2^logSplit - 1)
-        for (int power = (1 << log_split) - 1; power >= 1; power--)
+        for (int power = (1 << log_split) - 1; power >= 1; power--) 
         {
             gen_power(powered_ciphers, power, relin_key, options);
         }
@@ -4733,7 +5113,7 @@ namespace heongpu
             temp3_rotation, ntt_table_->data(), modulus_->data(), cfg_ntt,
             d_leveled_->operator[](current_level) * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location);
-
+        
         global_memory_replace_kernel<<<dim3((n >> 8), current_decomp_count, 2),
                                        256, 0, stream>>>(
             first_cipher.data(), result.data(), n_power);
@@ -4745,7 +5125,7 @@ namespace heongpu
             int galoiselt =
                 steps_to_galois_elt(shift_n1, n, galois_key.group_order_);
             int offset = ((2 * current_decomp_count) << n_power) * i;
-
+            
             // MultSum
             // TODO: make it efficient
             int iteration_count_1 =
@@ -5247,7 +5627,7 @@ namespace heongpu
 
         Complex64 scaling(std::pow(StoC_Scaling_, 1.0 / double(StoC_piece_)),
                           0.0);
-
+        
         int matrix_counter = 0;
         for (int i = 0; i < StoC_piece_; i++)
         {
@@ -5324,7 +5704,7 @@ namespace heongpu
 
         Complex64 scaling(std::pow(CtoS_Scaling_, 1.0 / double(CtoS_piece_)),
                           0.0);
-
+        
         int matrix_counter = 0;
         for (int i = 0; i < CtoS_piece_; i++)
         {
@@ -5788,6 +6168,708 @@ namespace heongpu
         }
     }
 
+    //////////////////////////////////////////////////////////////////////////
+    // VandermondeCF Implementation - @company CipherFlow
+    //////////////////////////////////////////////////////////////////////////
+
+    __host__ HEOperator<Scheme::CKKS>::VandermondeCF::VandermondeCF(
+        const int poly_degree, const int CtoS_piece, const int StoC_piece,
+        const double CtoS_Scaling, const double StoC_Scaling,
+        const float CtoS_bsgs_ratio, const float StoC_bsgs_ratio)
+    {
+        poly_degree_ = poly_degree;
+        num_slots_ = poly_degree_ >> 1;
+        log_num_slots_ = int(log2l(num_slots_));
+
+        CtoS_piece_ = CtoS_piece;
+        StoC_piece_ = StoC_piece;
+
+        CtoS_Scaling_ = CtoS_Scaling;
+        StoC_Scaling_ = StoC_Scaling;
+
+        generate_E_diagonals_index_cf();
+        generate_E_inv_diagonals_index_cf();
+        split_E_cf();
+        split_E_inv_cf();
+
+        generate_E_diagonals_cf();
+        generate_E_inv_diagonals_cf();
+
+        generate_V_n_lists_cf(CtoS_bsgs_ratio, StoC_bsgs_ratio);
+
+        generate_pre_comp_V_cf();
+        generate_pre_comp_V_inv_cf();
+
+        generate_key_indexs_cf();
+        key_indexs_ = unique_sort(key_indexs_);
+    }
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_E_diagonals_index_cf()
+    {
+        for (int i = log_num_slots_; 0 < i; i--)
+        {
+            int block_size = 1 << (log_num_slots_ - i);
+            if (i == 1)
+            {
+                E_index_.push_back(0);
+                E_index_.push_back(block_size);
+
+                E_size_.push_back(2);
+            }
+            else
+            {
+                E_index_.push_back(0);
+                E_index_.push_back(block_size);
+                E_index_.push_back(num_slots_ - block_size);
+
+                E_size_.push_back(3);
+            }
+        }
+    }
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_E_inv_diagonals_index_cf()
+    {
+        for (int i = log_num_slots_; 0 < i; i--)
+        {
+            int block_size = 1 << (i - 1);
+            if (i == log_num_slots_)
+            {
+                E_inv_index_.push_back(0);
+                E_inv_index_.push_back(block_size);
+
+                E_inv_size_.push_back(2);
+            }
+            else
+            {
+                E_inv_index_.push_back(0);
+                E_inv_index_.push_back(block_size);
+                E_inv_index_.push_back(num_slots_ - block_size);
+
+                E_inv_size_.push_back(3);
+            }
+        }
+
+    }
+
+    __host__ void HEOperator<Scheme::CKKS>::VandermondeCF::split_E_cf()
+    {
+        // E_splitted
+        int k = log_num_slots_ / StoC_piece_;
+        int m = log_num_slots_ % StoC_piece_;
+
+        for (int i = 0; i < StoC_piece_; i++)
+        {
+            E_splitted_.push_back(k);
+        }
+
+        for (int i = 0; i < m; i++)
+        {
+            E_splitted_[i]++;
+        }
+
+        int counter = 0;
+        for (int i = 0; i < StoC_piece_; i++)
+        {
+            std::vector<int> temp;
+            for (int j = 0; j < E_splitted_[i]; j++)
+            {
+                int size = (counter == (E_index_.size() - 2)) ? 2 : 3;
+                for (int k = 0; k < size; k++)
+                {
+                    temp.push_back(E_index_[counter]);
+                    counter++;
+                }
+            }
+            E_splitted_index_.push_back(temp);
+        }
+
+        int num_slots_mask = num_slots_ - 1;
+        counter = 0;
+        for (int k = 0; k < StoC_piece_; k++)
+        {
+            int matrix_count = E_splitted_[k];
+
+            // L_m_loc starts at the size of the first matrix
+            int L_m_loc = E_size_[counter];
+            std::vector<int> index_mul;
+            std::vector<int> index_mul_sorted;
+            std::vector<int> diag_index_temp;
+            std::vector<int> iteration_temp;
+            for (int m = 0; m < matrix_count - 1; m++)
+            {
+                if (m == 0)
+                {
+                    iteration_temp.push_back(E_size_[counter]);
+                    for (int i = 0; i < E_size_[counter]; i++)
+                    {
+                        int R_m_İNDEX = E_splitted_index_[k][i];
+                        diag_index_temp.push_back(R_m_İNDEX);
+                        for (int j = 0; j < E_size_[counter + 1]; j++)
+                        {
+                            int L_m_İNDEX =
+                                E_splitted_index_[k][L_m_loc + j];
+                            index_mul.push_back((L_m_İNDEX + R_m_İNDEX) &
+                                                num_slots_mask);
+                        }
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_size_[counter + 1 + m];
+                }
+                else
+                {
+                    iteration_temp.push_back(index_mul_sorted.size());
+                    for (int i = 0; i < index_mul_sorted.size(); i++)
+                    {
+                        int R_m_İNDEX = index_mul_sorted[i];
+                        diag_index_temp.push_back(R_m_İNDEX);
+                        for (int j = 0; j < E_size_[counter + 1 + m]; j++)
+                        {
+                            int L_m_İNDEX =
+                                E_splitted_index_[k][L_m_loc + j];
+                            index_mul.push_back((L_m_İNDEX + R_m_İNDEX) &
+                                                num_slots_mask);
+                        }
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_size_[counter + 1 + m];
+                }
+            }
+            V_matrixs_index_.push_back(index_mul_sorted);
+            E_splitted_diag_index_gpu_.push_back(diag_index_temp);
+            E_splitted_iteration_gpu_.push_back(iteration_temp);
+            counter += matrix_count;
+        }
+
+        std::vector<std::unordered_map<int, int>> dict_output_index;
+        for (int k = 0; k < StoC_piece_; k++)
+        {
+            std::unordered_map<int, int> temp;
+            for (int i = 0; i < V_matrixs_index_[k].size(); i++)
+            {
+                temp[V_matrixs_index_[k][i]] = i;
+            }
+            dict_output_index.push_back(temp);
+        }
+
+        counter = 0;
+        for (int k = 0; k < StoC_piece_; k++)
+        {
+            int matrix_count = E_splitted_[k];
+            // L_m_loc starts at the size of the first matrix
+            int L_m_loc = 0;
+            std::vector<int> index_mul;
+            std::vector<int> index_mul_sorted;
+
+            std::vector<int> temp_in_index;
+            std::vector<int> temp_out_index;
+            for (int m = 0; m < matrix_count; m++)
+            {
+                if (m == 0)
+                {
+                    for (int i = 0; i < E_size_[counter + m]; i++)
+                    {
+                        int R_m_İNDEX = E_splitted_index_[k][i];
+                        temp_out_index.push_back(
+                                dict_output_index[k][R_m_İNDEX]);
+                        index_mul.push_back(R_m_İNDEX);
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_size_[counter + m];
+                }
+                else
+                {
+                    for (int i = 0; i < index_mul_sorted.size(); i++)
+                    {
+                        int R_m_İNDEX = index_mul_sorted[i];
+                        temp_in_index.push_back(
+                            dict_output_index[k][R_m_İNDEX]);
+                        for (int j = 0; j < E_size_[counter + m]; j++)
+                        {
+                            int L_m_İNDEX =
+                                E_splitted_index_[k][L_m_loc + j];
+                            int indexs =
+                                (L_m_İNDEX + R_m_İNDEX) & num_slots_mask;
+                            index_mul.push_back(indexs);
+                            temp_out_index.push_back(
+                                dict_output_index[k][indexs]);
+                        }
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_size_[counter + m];
+                }
+            }
+            counter += matrix_count;
+            E_splitted_input_index_gpu_.push_back(temp_in_index);
+            E_splitted_output_index_gpu_.push_back(temp_out_index);
+        }
+
+    }
+
+    __host__ void HEOperator<Scheme::CKKS>::VandermondeCF::split_E_inv_cf()
+    {
+        // E_inv_splitted
+        int k = log_num_slots_ / CtoS_piece_;
+        int m = log_num_slots_ % CtoS_piece_;
+
+        for (int i = 0; i < CtoS_piece_; i++)
+        {
+            E_inv_splitted_.push_back(k);
+        }
+
+        for (int i = 0; i < m; i++)
+        {
+            E_inv_splitted_[i]++;
+        }
+
+        int counter = 0;
+        for (int i = 0; i < CtoS_piece_; i++)
+        {
+            std::vector<int> temp;
+            for (int j = 0; j < E_inv_splitted_[i]; j++)
+            {
+                int size = (counter == 0) ? 2 : 3;
+                for (int k = 0; k < size; k++)
+                {
+                    temp.push_back(E_inv_index_[counter]);
+                    counter++;
+                }
+            }
+            E_inv_splitted_index_.push_back(temp);
+        }
+
+        int num_slots_mask = num_slots_ - 1;
+        counter = 0;
+        for (int k = 0; k < CtoS_piece_; k++)
+        {
+            int matrix_count = E_inv_splitted_[k];
+
+            // L_m_loc starts at the size of the first matrix
+            int L_m_loc = E_inv_size_[counter];
+            std::vector<int> index_mul;
+            std::vector<int> index_mul_sorted;
+            std::vector<int> diag_index_temp;
+            std::vector<int> iteration_temp;
+            for (int m = 0; m < matrix_count - 1; m++)
+            {
+                if (m == 0)
+                {
+                    iteration_temp.push_back(E_inv_size_[counter]);
+                    for (int i = 0; i < E_inv_size_[counter]; i++)
+                    {
+                        int R_m_İNDEX = E_inv_splitted_index_[k][i];
+                        diag_index_temp.push_back(R_m_İNDEX);
+                        for (int j = 0; j < E_inv_size_[counter + 1]; j++)
+                        {
+                            int L_m_İNDEX =
+                                E_inv_splitted_index_[k][L_m_loc + j];
+                            index_mul.push_back((L_m_İNDEX + R_m_İNDEX) &
+                                                num_slots_mask);
+                        }
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_inv_size_[counter + 1 + m];
+                }
+                else
+                {
+                    iteration_temp.push_back(index_mul_sorted.size());
+                    for (int i = 0; i < index_mul_sorted.size(); i++)
+                    {
+                        int R_m_İNDEX = index_mul_sorted[i];
+                        diag_index_temp.push_back(R_m_İNDEX);
+                        for (int j = 0; j < E_inv_size_[counter + 1 + m]; j++)
+                        {
+                            int L_m_İNDEX =
+                                E_inv_splitted_index_[k][L_m_loc + j];
+                            index_mul.push_back((L_m_İNDEX + R_m_İNDEX) &
+                                                num_slots_mask);
+                        }
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_inv_size_[counter + 1 + m];
+                }
+            }
+            V_inv_matrixs_index_.push_back(index_mul_sorted);
+            E_inv_splitted_diag_index_gpu_.push_back(diag_index_temp);
+            E_inv_splitted_iteration_gpu_.push_back(iteration_temp);
+            counter += matrix_count;
+        }
+
+        std::vector<std::unordered_map<int, int>> dict_output_index;
+        for (int k = 0; k < CtoS_piece_; k++)
+        {
+            std::unordered_map<int, int> temp;
+            for (int i = 0; i < V_inv_matrixs_index_[k].size(); i++)
+            {
+                temp[V_inv_matrixs_index_[k][i]] = i;
+            }
+            dict_output_index.push_back(temp);
+        }
+
+        counter = 0;
+        for (int k = 0; k < CtoS_piece_; k++)
+        {
+            int matrix_count = E_inv_splitted_[k];
+            // L_m_loc starts at the size of the first matrix
+            int L_m_loc = 0;
+            std::vector<int> index_mul;
+            std::vector<int> index_mul_sorted;
+
+            std::vector<int> temp_in_index;
+            std::vector<int> temp_out_index;
+            for (int m = 0; m < matrix_count; m++)
+            {
+                if (m == 0)
+                {
+                    for (int i = 0; i < E_inv_size_[counter + m]; i++)
+                    {
+                        int R_m_İNDEX = E_inv_splitted_index_[k][i];
+                        temp_out_index.push_back(
+                                dict_output_index[k][R_m_İNDEX]);
+                        index_mul.push_back(R_m_İNDEX);
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_inv_size_[counter + m];
+                }
+                else
+                {
+                    for (int i = 0; i < index_mul_sorted.size(); i++)
+                    {
+                        int R_m_İNDEX = index_mul_sorted[i];
+                        temp_in_index.push_back(
+                            dict_output_index[k][R_m_İNDEX]);
+                        for (int j = 0; j < E_inv_size_[counter + m]; j++)
+                        {
+                            int L_m_İNDEX =
+                                E_inv_splitted_index_[k][L_m_loc + j];
+                            int indexs =
+                                (L_m_İNDEX + R_m_İNDEX) & num_slots_mask;
+                            index_mul.push_back(indexs);
+                            temp_out_index.push_back(
+                                dict_output_index[k][indexs]);
+                        }
+                    }
+                    index_mul_sorted = unique_sort(index_mul);
+                    index_mul.clear();
+                    // Increment by the actual size of the current matrix
+                    L_m_loc += E_inv_size_[counter + m];
+                }
+            }
+            counter += matrix_count;
+            E_inv_splitted_input_index_gpu_.push_back(temp_in_index);
+            E_inv_splitted_output_index_gpu_.push_back(temp_out_index);
+        }
+
+    }
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_E_diagonals_cf()
+    {
+        int bloksize = (num_slots_ <= 1024) ? num_slots_ : 1024;
+        int blokcount = (num_slots_ + (1023)) / 1024;
+
+        heongpu::DeviceVector<Complex64> V_logn_diagnal(
+            ((3 * log_num_slots_) - 1) << log_num_slots_);
+        E_diagonal_generate_kernel_cf<<<dim3(blokcount, log_num_slots_, 1),
+                                     bloksize>>>(V_logn_diagnal.data(),
+                                                 log_num_slots_);
+
+        Complex64 scaling(std::pow(StoC_Scaling_, 1.0/double(StoC_piece_)), 0.0); 
+
+        int matrix_counter = 0;
+        for (int i = 0; i < StoC_piece_; i++)
+        {
+            // heongpu::DeviceVector<int> diag_index_gpu(
+            //     E_splitted_diag_index_gpu_[i]);
+            heongpu::DeviceVector<int> diag_index_gpu(
+                E_splitted_index_[i]);
+            heongpu::DeviceVector<int> input_index_gpu(
+                E_splitted_input_index_gpu_[i]);
+            heongpu::DeviceVector<int> output_index_gpu(
+                E_splitted_output_index_gpu_[i]);
+
+            heongpu::DeviceVector<Complex64> V_mul((V_matrixs_index_[i].size())
+                                                   << log_num_slots_);
+            cudaMemset(V_mul.data(), 0, V_mul.size() * sizeof(Complex64));
+
+            int input_loc = (3 * matrix_counter) << log_num_slots_;
+            int R_matrix_counter = 0;
+            int output_index_counter = 0;
+
+            for (int j = 0; j < (E_splitted_[i]); j++)
+            {
+                heongpu::DeviceVector<Complex64> temp_result(
+                    (V_matrixs_index_[i].size()) << log_num_slots_);
+                cudaMemset(temp_result.data(), 0,
+                           temp_result.size() * sizeof(Complex64));
+
+                bool first_check = (j == 0) ? true : false;
+                bool last_check = ((i == (StoC_piece_ - 1)) &&
+                                   (j == (E_splitted_[i] - 1)))
+                                      ? true
+                                      : false;
+                int iteration_count = (j>0) ? E_splitted_iteration_gpu_[i][j-1] : E_size_[matrix_counter];
+
+                E_diagonal_matrix_mult_kernel_cf<<<blokcount, bloksize>>>(
+                    V_logn_diagnal.data() + input_loc, temp_result.data(),
+                    V_mul.data(), diag_index_gpu.data(), input_index_gpu.data(),
+                    output_index_gpu.data(), iteration_count,
+                    R_matrix_counter, output_index_counter, j, first_check,
+                    last_check, log_num_slots_);
+
+                V_mul = std::move(temp_result);
+
+                R_matrix_counter += iteration_count;
+                output_index_counter += (j > 0)? (iteration_count * 3): iteration_count;
+            }
+
+            if (StoC_Scaling_ != 1.0) {
+                complex_vector_scale_kernel<<<dim3(blokcount, V_matrixs_index_[i].size(), 1), bloksize>>>(
+                    V_mul.data(), scaling, log_num_slots_);
+            }
+
+            V_matrixs_.push_back(std::move(V_mul));
+            matrix_counter += E_splitted_[i];
+        }
+
+    }
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_E_inv_diagonals_cf()
+    {
+        int bloksize = (num_slots_ <= 1024) ? num_slots_ : 1024;
+        int blokcount = (num_slots_ + (1023)) / 1024;
+
+        heongpu::DeviceVector<Complex64> V_inv_logn_diagnal(
+            ((3 * log_num_slots_) - 1) << log_num_slots_);
+        E_diagonal_inverse_generate_kernel_cf<<<dim3(blokcount, log_num_slots_, 1),
+                                                     bloksize>>>(
+            V_inv_logn_diagnal.data(), log_num_slots_);
+
+        Complex64 scaling(std::pow(CtoS_Scaling_, 1.0/double(CtoS_piece_)), 0.0);
+    
+        int matrix_counter = 0;
+        for (int i = 0; i < CtoS_piece_; i++)
+        {
+            // heongpu::DeviceVector<int> diag_index_gpu(
+            //     E_inv_splitted_diag_index_gpu_[i]);
+            heongpu::DeviceVector<int> diag_index_gpu(
+                E_inv_splitted_index_[i]);
+            heongpu::DeviceVector<int> input_index_gpu(
+                E_inv_splitted_input_index_gpu_[i]);
+            heongpu::DeviceVector<int> output_index_gpu(
+                E_inv_splitted_output_index_gpu_[i]);
+
+            heongpu::DeviceVector<Complex64> V_mul(
+                (V_inv_matrixs_index_[i].size()) << log_num_slots_);
+            cudaMemset(V_mul.data(), 0, V_mul.size() * sizeof(Complex64));
+           
+            int input_loc;
+            if (i == 0)
+            {
+                input_loc = 0;
+            }
+            else
+            {
+                input_loc = ((3 * matrix_counter) - 1) << log_num_slots_;
+            }
+            
+            int R_matrix_counter = 0;
+            int output_index_counter = 0;
+
+            for (int j = 0; j < (E_inv_splitted_[i]); j++)
+            {
+                heongpu::DeviceVector<Complex64> temp_result(
+                    (V_inv_matrixs_index_[i].size()) << log_num_slots_);
+                cudaMemset(temp_result.data(), 0,
+                           temp_result.size() * sizeof(Complex64));
+
+                bool first_check1 = (i == 0) ? true : false;
+                bool first_check2 = (j == 0) ? true : false;
+
+                int iteration_count = (j>0) ? E_inv_splitted_iteration_gpu_[i][j-1] : E_inv_size_[matrix_counter];
+               
+                E_diagonal_inverse_matrix_mult_kernel_cf<<<blokcount, bloksize>>>(
+                    V_inv_logn_diagnal.data() + input_loc, temp_result.data(),
+                    V_mul.data(), diag_index_gpu.data(), input_index_gpu.data(),
+                    output_index_gpu.data(),
+                    iteration_count, R_matrix_counter,
+                    output_index_counter, j, first_check1, first_check2,
+                    log_num_slots_);
+
+                V_mul = std::move(temp_result);
+
+                R_matrix_counter += iteration_count;
+                output_index_counter += (j > 0)? (iteration_count * 3): iteration_count;
+            }
+
+            if (CtoS_Scaling_ != 1.0) {
+                complex_vector_scale_kernel<<<dim3(blokcount, V_inv_matrixs_index_[i].size(), 1), bloksize>>>(
+                    V_mul.data(), scaling, log_num_slots_);
+            }
+
+            V_inv_matrixs_.push_back(std::move(V_mul));
+            matrix_counter += E_inv_splitted_[i];
+        }
+    }
+
+    
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_V_n_lists_cf(
+        float CtoS_bsgs_ratio, float StoC_bsgs_ratio)
+    {
+       for (int i = 0; i < StoC_piece_; i++)
+        {
+            std::vector<int> rot_n1, rot_n2; 
+            std::vector<std::vector<int>> result = 
+                    heongpu::seperate_func_v2(V_matrixs_index_[i], num_slots_, rot_n1, rot_n2, StoC_bsgs_ratio);
+
+            diags_matrices_bsgs_.push_back(std::move(result));
+
+            diags_matrices_bsgs_rot_n1_.push_back(std::move(rot_n1)); 
+            diags_matrices_bsgs_rot_n2_.push_back(std::move(rot_n2)); 
+        }
+
+        for (int i = 0; i < CtoS_piece_; i++)
+        {
+            std::vector<int> rot_n1, rot_n2; 
+            std::vector<std::vector<int>> result =
+                    heongpu::seperate_func_v2(V_inv_matrixs_index_[i], num_slots_, rot_n1, rot_n2, CtoS_bsgs_ratio); 
+
+            diags_matrices_inv_bsgs_.push_back(std::move(result));
+
+            diags_matrices_inv_bsgs_rot_n1_.push_back(std::move(rot_n1));
+            diags_matrices_inv_bsgs_rot_n2_.push_back(std::move(rot_n2));
+        }
+
+    }
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_pre_comp_V_cf()
+    {
+        int bloksize = (num_slots_ <= 1024) ? num_slots_ : 1024;
+        int blokcount = (num_slots_ + (1023)) / 1024;
+
+        for (int m = 0; m < StoC_piece_; m++)
+        {
+            heongpu::DeviceVector<Complex64> temp_rotated(
+                (V_matrixs_index_[m].size()) << log_num_slots_);
+
+            int counter = 0;
+            for (int j = 0; j < diags_matrices_bsgs_[m].size(); j++)
+            {
+                int real_shift = -(diags_matrices_bsgs_rot_n1_[m][j]);
+                for (int i = 0; i < diags_matrices_bsgs_[m][j].size(); i++)
+                {
+                    int location = (counter << log_num_slots_);
+
+                    vector_rotate_kernel<<<blokcount, bloksize>>>(
+                        V_matrixs_[m].data() + location,
+                        temp_rotated.data() + location, real_shift,
+                        log_num_slots_);
+
+                    counter++;
+                }
+            }
+
+            V_matrixs_rotated_.push_back(std::move(temp_rotated));
+        }
+    }
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_pre_comp_V_inv_cf()
+    {
+        int bloksize = (num_slots_ <= 1024) ? num_slots_ : 1024;
+        int blokcount = (num_slots_ + (1023)) / 1024;
+
+        for (int m = 0; m < CtoS_piece_; m++)
+        {
+            heongpu::DeviceVector<Complex64> temp_rotated(
+                (V_inv_matrixs_index_[m].size()) << log_num_slots_);
+
+            int counter = 0;
+            for (int j = 0; j < diags_matrices_inv_bsgs_[m].size(); j++)
+            {
+                int real_shift = -(diags_matrices_inv_bsgs_rot_n1_[m][j]); 
+                for (int i = 0; i < diags_matrices_inv_bsgs_[m][j].size(); i++)
+                {
+                    int location = (counter << log_num_slots_);
+
+                    vector_rotate_kernel<<<blokcount, bloksize>>>(
+                        V_inv_matrixs_[m].data() + location,
+                        temp_rotated.data() + location, real_shift,
+                        log_num_slots_);
+
+                    counter++;
+                }
+            }
+
+            V_inv_matrixs_rotated_.push_back(std::move(temp_rotated));
+        }
+    }
+
+
+    __host__ void
+    HEOperator<Scheme::CKKS>::VandermondeCF::generate_key_indexs_cf()
+    {
+        for (int m = 0; m < CtoS_piece_; m++)
+        {
+            for (const auto& index : diags_matrices_inv_bsgs_rot_n1_[m])
+            {
+                if (index != 0 && std::find(key_indexs_.begin(), key_indexs_.end(), index) == key_indexs_.end()) {
+                    key_indexs_.push_back(index);
+                }
+            }
+
+            for (int j = 0; j < diags_matrices_inv_bsgs_[m].size(); j++)
+            {
+                for (const int& index : diags_matrices_inv_bsgs_[m][j])
+                {
+                    int index_ = index - diags_matrices_inv_bsgs_rot_n1_[m][j];
+                    if (index_ != 0 && std::find(key_indexs_.begin(), key_indexs_.end(), index_) == key_indexs_.end()) {
+                        key_indexs_.push_back(index_);     
+                    }
+                }
+            }
+        }
+
+        for (int m = 0; m < StoC_piece_; m++)
+        {
+            for (const auto& index : diags_matrices_bsgs_rot_n1_[m])
+            {
+                if (index != 0 && std::find(key_indexs_.begin(), key_indexs_.end(), index) == key_indexs_.end()) {
+                    key_indexs_.push_back(index);
+                }
+            }
+
+            for (int j = 0; j < diags_matrices_bsgs_[m].size(); j++)
+            {
+                for (const int& index : diags_matrices_bsgs_[m][j])
+                {
+                    int index_ = index - diags_matrices_bsgs_rot_n1_[m][j];
+                    if (index_ != 0 && std::find(key_indexs_.begin(), key_indexs_.end(), index_) == key_indexs_.end()) {
+                        key_indexs_.push_back(index_);     
+                    }
+                }
+            }
+        }
+    }
+
     __host__ HEOperator<Scheme::CKKS>::Polynomial::Polynomial(
         int max_deg, const std::vector<Complex64>& coeffs, bool lead,
         PolyType type, double a, double b)
@@ -5839,7 +6921,7 @@ namespace heongpu
         return static_cast<int>(std::ceil(std::log2(coeffs_.size())));
     }
 
-    __host__ std::pair<HEOperator<Scheme::CKKS>::Polynomial,
+    __host__ std::pair<HEOperator<Scheme::CKKS>::Polynomial, 
                        HEOperator<Scheme::CKKS>::Polynomial>
     HEOperator<Scheme::CKKS>::Polynomial::split_coeffs(int split) const
     {
@@ -6008,12 +7090,12 @@ namespace heongpu
             eval_mod_config_ = config.eval_mod_config_;
 
             // Set Q if not already set in config
-            if (eval_mod_config_.Q_ == 0)
+            if (eval_mod_config_.Q_ == 0) 
             {
                 eval_mod_config_.Q_ = prime_vector_[0].value;
             }
             // Set scaling_factor based on Q0's bit length
-            if (eval_mod_config_.scaling_factor_ == 0.0)
+            if (eval_mod_config_.scaling_factor_ == 0.0) 
             {
                 int bit_length = calculate_bit_count(
                     prime_vector_[eval_mod_config_.level_start_].value);
@@ -6021,31 +7103,31 @@ namespace heongpu
                     static_cast<double>(1ULL << bit_length);
             }
 
-            eval_mod_config_.q_diff_ =
-                static_cast<double>(eval_mod_config_.Q_) /
+            eval_mod_config_.q_diff_ = 
+                static_cast<double>(eval_mod_config_.Q_) / 
                 std::pow(2.0, std::round(std::log2(
                                   static_cast<double>(eval_mod_config_.Q_))));
             eval_mod_config_.sqrt2pi_ =
                 std::pow(eval_mod_config_.q_diff_ / (2.0 * M_PI),
                          1.0 / std::pow(2.0, eval_mod_config_.double_angle_));
-
-            // double CtoS_Scaling = 1.0
-            // /(double(eval_mod_config_.K_)*double(n)*eval_mod_config_.q_diff_);
-            double CtoS_Scaling =
-                0.5 / (double(eval_mod_config_.K_) * eval_mod_config_.q_diff_);
+            
+            // double CtoS_Scaling =
+            //     0.5 / (double(eval_mod_config_.K_) * eval_mod_config_.q_diff_); // @company CipherFlow
+            double CtoS_Scaling = 1.0
+                /(double(eval_mod_config_.K_)*double(n)*eval_mod_config_.q_diff_); // @company CipherFlow
             double StoC_Scaling =
                 scale_boot_ / (eval_mod_config_.scaling_factor_ /
                                eval_mod_config_.message_ratio_);
 
-            Vandermonde matrix_gen(n, CtoS_piece_, StoC_piece_, CtoS_Scaling,
-                                   StoC_Scaling, cts_config_.bsgs_ratio_,
-                                   stc_config_.bsgs_ratio_);
+            VandermondeCF matrix_gen(n, CtoS_piece_, StoC_piece_, CtoS_Scaling, 
+                                     StoC_Scaling, cts_config_.bsgs_ratio_, 
+                                     stc_config_.bsgs_ratio_);  // @company CipherFlow
 
             V_matrixs_rotated_encoded_ =
-                encode_V_matrixs_v2(matrix_gen, stc_config_.level_start_);
+                encode_V_matrixs(matrix_gen, stc_config_.level_start_);  // @company CipherFlow
             V_inv_matrixs_rotated_encoded_ =
-                encode_V_inv_matrixs_v2(matrix_gen, cts_config_.level_start_);
-
+                encode_V_inv_matrixs(matrix_gen, cts_config_.level_start_);  // @company CipherFlow
+            
             V_matrixs_index_ = matrix_gen.V_matrixs_index_;
             V_inv_matrixs_index_ = matrix_gen.V_inv_matrixs_index_;
 
@@ -6251,6 +7333,11 @@ namespace heongpu
             throw std::logic_error("Ciphertexts leveled should be at max!");
         }
 
+        // @company CipherFlow
+        if (input1.scale_ == 0.0) {
+            input1.scale_ = scale_boot_;
+        }
+
         Ciphertext<Scheme::CKKS> scaled_input1 = input1;
         double q0OverMessageRatio = std::exp2(
             std::round(std::log2(static_cast<double>(prime_vector_[0].value) /
@@ -6288,7 +7375,7 @@ namespace heongpu
         // Coeff to slot
         std::vector<heongpu::Ciphertext<Scheme::CKKS>> enc_results =
             coeff_to_slot_v2(c_raised, galois_key, options); // c_raised
-
+        
         Ciphertext<Scheme::CKKS> ciph_sin0 =
             eval_mod(enc_results[0], relin_key, options);
         Ciphertext<Scheme::CKKS> ciph_sin1 =

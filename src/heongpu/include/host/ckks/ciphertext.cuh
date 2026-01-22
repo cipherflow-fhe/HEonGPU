@@ -43,6 +43,13 @@ namespace heongpu
         __host__
         Ciphertext(HEContext<Scheme::CKKS>& context,
                    const ExecutionOptions& options = ExecutionOptions());
+        
+        /**
+         * @company CipherFlow
+         */
+        __host__
+        Ciphertext(HEContext<Scheme::CKKS>& context, int level,
+                   const ExecutionOptions& options = ExecutionOptions());
 
         /**
          * @brief Stores the ciphertext in the device (GPU) memory.
@@ -178,6 +185,11 @@ namespace heongpu
          * @return double Scaling factor.
          */
         inline double scale() const noexcept { return scale_; }
+
+        /**
+         * @company CipherFlow
+         */
+        inline void set_scale(double scale) noexcept { scale_ = scale; }
 
         /**
          * @brief Indicates whether rescaling is required for the ciphertext.

@@ -43,6 +43,13 @@ namespace heongpu
         __host__
         Ciphertext(HEContext<Scheme::BFV>& context,
                    const ExecutionOptions& options = ExecutionOptions());
+        
+        /**
+         * @company CipherFlow
+         */
+        __host__
+        Ciphertext(HEContext<Scheme::BFV>& context, int level,
+                   const ExecutionOptions& options = ExecutionOptions());
 
         /**
          * @brief Stores the ciphertext in the device (GPU) memory.
@@ -148,12 +155,45 @@ namespace heongpu
         inline int size() const noexcept { return cipher_size_; }
 
         /**
+         * @brief Returns the depth level of the ciphertext.
+         *
+         * @return int Depth level of the ciphertext.
+         * 
+         * @company CipherFlow
+         */
+        inline int depth() const noexcept { return depth_; }
+
+        /**
+         * @brief Returns the level of the ciphertext.
+         *
+         * @return int Level of the ciphertext.
+         *
+         * @company CipherFlow
+         */
+        inline int level() const noexcept
+        {
+            return coeff_modulus_count_ - (depth_ + 1);
+        }
+
+        /**
          * @brief Indicates whether the ciphertext is in the NTT (Number
          * Theoretic Transform) domain.
          *
          * @return bool True if in NTT domain, false otherwise.
          */
         inline bool in_ntt_domain() const noexcept { return in_ntt_domain_; }
+
+        /**
+         * @brief Indicates whether rescaling is required for the ciphertext.
+         *
+         * @return bool True if rescaling is required, false otherwise.
+         * 
+         * @company CipherFlow
+         */
+        inline bool rescale_required() const noexcept
+        {
+            return rescale_required_;
+        }
 
         /**
          * @brief Indicates whether relinearization is required for the
@@ -171,9 +211,10 @@ namespace heongpu
         Ciphertext(const Ciphertext& copy)
             : ring_size_(copy.ring_size_),
               coeff_modulus_count_(copy.coeff_modulus_count_),
-              cipher_size_(copy.cipher_size_), scheme_(copy.scheme_),
-              in_ntt_domain_(copy.in_ntt_domain_),
+              cipher_size_(copy.cipher_size_), depth_(copy.depth_),  // @company CipherFlow
+              scheme_(copy.scheme_), in_ntt_domain_(copy.in_ntt_domain_),
               storage_type_(copy.storage_type_),
+              rescale_required_(copy.rescale_required_),  // @company CipherFlow
               relinearization_required_(copy.relinearization_required_),
               ciphertext_generated_(copy.ciphertext_generated_)
         {
@@ -199,9 +240,11 @@ namespace heongpu
             : ring_size_(std::move(assign.ring_size_)),
               coeff_modulus_count_(std::move(assign.coeff_modulus_count_)),
               cipher_size_(std::move(assign.cipher_size_)),
+              depth_(std::move(assign.depth_)), // @company CipherFlow
               scheme_(std::move(assign.scheme_)),
               in_ntt_domain_(std::move(assign.in_ntt_domain_)),
               storage_type_(std::move(assign.storage_type_)),
+              rescale_required_(std::move(assign.rescale_required_)), // @company CipherFlow
               relinearization_required_(
                   std::move(assign.relinearization_required_)),
               ciphertext_generated_(std::move(assign.ciphertext_generated_)),
@@ -209,7 +252,7 @@ namespace heongpu
               host_locations_(std::move(assign.host_locations_))
         {
         }
-
+        
         Ciphertext& operator=(const Ciphertext& copy)
         {
             if (this != &copy)
@@ -217,10 +260,12 @@ namespace heongpu
                 ring_size_ = copy.ring_size_;
                 coeff_modulus_count_ = copy.coeff_modulus_count_;
                 cipher_size_ = copy.cipher_size_;
+                depth_ = copy.depth_;  // @company CipherFlow
                 scheme_ = copy.scheme_;
                 in_ntt_domain_ = copy.in_ntt_domain_;
                 storage_type_ = copy.storage_type_;
 
+                rescale_required_ = copy.rescale_required_;  // @company CipherFlow
                 relinearization_required_ = copy.relinearization_required_;
                 ciphertext_generated_ = copy.ciphertext_generated_;
 
@@ -252,10 +297,12 @@ namespace heongpu
                 ring_size_ = std::move(assign.ring_size_);
                 coeff_modulus_count_ = std::move(assign.coeff_modulus_count_);
                 cipher_size_ = std::move(assign.cipher_size_);
+                depth_ = std::move(assign.depth_);  // @company CipherFlow
                 scheme_ = std::move(assign.scheme_);
                 in_ntt_domain_ = std::move(assign.in_ntt_domain_);
                 storage_type_ = std::move(assign.storage_type_);
 
+                rescale_required_ = std::move(assign.rescale_required_);  // @company CipherFlow
                 relinearization_required_ =
                     std::move(assign.relinearization_required_);
 
@@ -276,10 +323,12 @@ namespace heongpu
         int ring_size_;
         int coeff_modulus_count_;
         int cipher_size_;
+        int depth_; // @company CipherFlow
 
         bool in_ntt_domain_;
         storage_type storage_type_;
 
+        bool rescale_required_; // @company CipherFlow
         bool relinearization_required_;
 
         bool ciphertext_generated_ = false;

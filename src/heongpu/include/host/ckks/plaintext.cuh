@@ -54,6 +54,13 @@ namespace heongpu
         explicit __host__
         Plaintext(HEContext<Scheme::CKKS>& context,
                   const ExecutionOptions& options = ExecutionOptions());
+        
+        /**
+         * @company CipherFlow
+         */
+        explicit __host__
+        Plaintext(HEContext<Scheme::CKKS>& context, int level,
+                  const ExecutionOptions& options = ExecutionOptions());
 
         /**
          * @brief Stores the plaintext in the device (GPU) memory.
@@ -87,6 +94,18 @@ namespace heongpu
          */
         Data64* data();
 
+        // @company CipherFlow
+        cudaStream_t stream() const noexcept
+        {
+            return device_locations_.stream();
+        }
+
+        // @company CipherFlow
+        void switch_stream(cudaStream_t stream)
+        {
+            device_locations_.set_stream(stream);
+        }
+
         /**
          * @brief Returns the size of the plaintext.
          *
@@ -107,6 +126,24 @@ namespace heongpu
          * @return double Scaling factor.
          */
         inline double scale() const noexcept { return scale_; }
+
+        // @company CipherFlow
+        inline int coeff_modulus_count() const noexcept
+        {
+            return coeff_modulus_count_;
+        }
+
+        // @company CipherFlow
+        inline int level() const noexcept
+        {
+            return coeff_modulus_count_ - (depth_ + 1);
+        }
+
+        // @company CipherFlow
+        inline void set_ringt(bool is_ringt) 
+        {
+            this->is_ringt_ = is_ringt;
+        }
 
         /**
          * @brief Indicates whether the plaintext is in the NTT (Number
@@ -129,6 +166,8 @@ namespace heongpu
               depth_(copy.depth_), scale_(copy.scale_),
               in_ntt_domain_(copy.in_ntt_domain_),
               storage_type_(copy.storage_type_),
+              coeff_modulus_count_(copy.coeff_modulus_count_), // @company CipherFlow
+              is_ringt_(copy.is_ringt_), // @company CipherFlow
               plaintext_generated_(copy.plaintext_generated_)
         {
             if (copy.storage_type_ == storage_type::DEVICE)
@@ -156,6 +195,8 @@ namespace heongpu
               scale_(std::move(assign.scale_)),
               in_ntt_domain_(std::move(assign.in_ntt_domain_)),
               storage_type_(std::move(assign.storage_type_)),
+              coeff_modulus_count_(std::move(assign.coeff_modulus_count_)), // @company CipherFlow
+              is_ringt_(std::move(assign.is_ringt_)), // @company CipherFlow
               plaintext_generated_(std::move(assign.plaintext_generated_)),
               device_locations_(std::move(assign.device_locations_)),
               host_locations_(std::move(assign.host_locations_))
@@ -172,6 +213,8 @@ namespace heongpu
                 scale_ = copy.scale_;
                 in_ntt_domain_ = copy.in_ntt_domain_;
                 storage_type_ = copy.storage_type_;
+                coeff_modulus_count_ = copy.coeff_modulus_count_; // @company CipherFlow
+                is_ringt_ = copy.is_ringt_; // @company CipherFlow
                 plaintext_generated_ = copy.plaintext_generated_;
 
                 if (copy.storage_type_ == storage_type::DEVICE)
@@ -206,6 +249,8 @@ namespace heongpu
                 plaintext_generated_ = std::move(assign.plaintext_generated_);
                 depth_ = std::move(assign.depth_);
                 scale_ = std::move(assign.scale_);
+                coeff_modulus_count_ = std::move(assign.coeff_modulus_count_); // @company CipherFlow
+                is_ringt_ = std::move(assign.is_ringt_); // @company CipherFlow
                 device_locations_ = std::move(assign.device_locations_);
                 host_locations_ = std::move(assign.host_locations_);
             }
@@ -225,6 +270,9 @@ namespace heongpu
 
         bool in_ntt_domain_ = false;
         storage_type storage_type_;
+
+        int coeff_modulus_count_; // @company CipherFlow
+        bool is_ringt_ = false ; // @company CipherFlow
 
         bool plaintext_generated_ = false;
 

@@ -27,7 +27,7 @@
 
 // Max power of galois key capability, e.g., if MAX_SHIFT is 8, rotation
 // capability range is between 0 and 255(2^(8 - 1))
-#define MAX_SHIFT 8
+#define MAX_SHIFT 12
 
 // Memorypool sizes
 constexpr static float initial_device_memorypool_size =

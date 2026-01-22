@@ -175,6 +175,53 @@ namespace heongpu
         plain.memory_set(std::move(output_memory));
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__ void HEEncoder<Scheme::CKKS>::encode_ringt_ckks(
+        Plaintext<Scheme::CKKS>& plain, const std::vector<double>& message,
+        const double scale, const cudaStream_t stream)
+    {
+        DeviceVector<Data64> output_memory(n, stream);
+
+        DeviceVector<double> message_gpu(slot_count_, stream);
+        if (message.size() < slot_count_)
+        {
+            cudaMemsetAsync(message_gpu.data(), 0, slot_count_ * sizeof(double),
+                            stream);
+        }
+        cudaMemcpyAsync(message_gpu.data(), message.data(),
+                        message.size() * sizeof(double), cudaMemcpyHostToDevice,
+                        stream);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        DeviceVector<Complex64> temp_complex(n, stream);
+        double_to_complex_kernel<<<dim3(((slot_count_) >> 8), 1, 1), 256, 0,
+                                   stream>>>(message_gpu.data(),
+                                             temp_complex.data());
+
+        double fix = scale / static_cast<double>(slot_count_);
+
+        gpufft::fft_configuration<Float64> cfg_ifft{};
+        cfg_ifft.n_power = log_slot_count_;
+        cfg_ifft.fft_type = gpufft::type::INVERSE;
+        cfg_ifft.mod_inverse = Complex64(fix, 0.0);
+        cfg_ifft.stream = stream;
+
+        gpufft::GPU_Special_FFT(temp_complex.data(),
+                                special_ifft_roots_table_->data(), cfg_ifft, 1);
+
+        encode_kernel_ckks_conversion<<<dim3(((slot_count_) >> 8), 1, 1), 256,
+                                        0, stream>>>(
+            output_memory.data(), temp_complex.data(), modulus_->data(),
+            1, two_pow_64, reverse_order->data(), n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        plain.scale_ = scale;
+
+        plain.memory_set(std::move(output_memory));
+    }
+
     __host__ void HEEncoder<Scheme::CKKS>::encode_ckks(
         Plaintext<Scheme::CKKS>& plain, const HostVector<double>& message,
         const double scale, const cudaStream_t stream)
@@ -280,6 +327,48 @@ namespace heongpu
         plain.memory_set(std::move(output_memory));
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__ void HEEncoder<Scheme::CKKS>::encode_ringt_ckks(
+        Plaintext<Scheme::CKKS>& plain, const std::vector<Complex64>& message,
+        const double scale, const cudaStream_t stream)
+    {
+        DeviceVector<Data64> output_memory(n, stream);
+
+        DeviceVector<Complex64> message_gpu(slot_count_, stream);
+        if (message.size() < slot_count_)
+        {
+            cudaMemsetAsync(message_gpu.data(), 0,
+                            slot_count_ * sizeof(Complex64), stream);
+        }
+        cudaMemcpyAsync(message_gpu.data(), message.data(),
+                        message.size() * sizeof(Complex64),
+                        cudaMemcpyHostToDevice, stream);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        double fix = scale / static_cast<double>(slot_count_);
+
+        gpufft::fft_configuration<Float64> cfg_ifft{};
+        cfg_ifft.n_power = log_slot_count_;
+        cfg_ifft.fft_type = gpufft::type::INVERSE;
+        cfg_ifft.mod_inverse = Complex64(fix, 0.0);
+        cfg_ifft.stream = stream;
+
+        gpufft::GPU_Special_FFT(message_gpu.data(),
+                                special_ifft_roots_table_->data(), cfg_ifft, 1);
+
+        encode_kernel_ckks_conversion<<<dim3(((slot_count_) >> 8), 1, 1), 256,
+                                        0, stream>>>(
+            output_memory.data(), message_gpu.data(), modulus_->data(), 1,
+            two_pow_64, reverse_order->data(), n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        plain.scale_ = scale;
+
+        plain.memory_set(std::move(output_memory));
+    }
+
     __host__ void HEEncoder<Scheme::CKKS>::encode_ckks(
         Plaintext<Scheme::CKKS>& plain, const HostVector<Complex64>& message,
         const double scale, const cudaStream_t stream)
@@ -364,6 +453,34 @@ namespace heongpu
         plain.memory_set(std::move(output_memory));
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__ void HEEncoder<Scheme::CKKS>::ringt_to_pt_ckks(Plaintext<Scheme::CKKS>& plain_ringt,
+                                            Plaintext<Scheme::CKKS>& plain_pt, const int level,
+                                            const cudaStream_t stream)
+    {
+        DeviceVector<Data64> output_memory(n * (level + 1), stream);
+
+        ringt_to_pt_kernel<<<dim3((n >> 8), (level+1), 1), 256, 0, stream>>>(
+            plain_ringt.data(), output_memory.data(), modulus_->data(),
+            n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::FORWARD,
+            .ntt_layout = gpuntt::PerPolynomial,      
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .stream = stream};
+
+        gpuntt::GPU_NTT_Inplace(output_memory.data(), ntt_table_->data(),
+                                modulus_->data(), cfg_ntt, level+1, level+1);
+
+        plain_pt.memory_set(std::move(output_memory));
+    }
+
     __host__ void
     HEEncoder<Scheme::CKKS>::decode_ckks(std::vector<double>& message,
                                          Plaintext<Scheme::CKKS>& plain,
@@ -378,7 +495,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,      
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -442,7 +559,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,            
+            .ntt_layout = gpuntt::PerPolynomial,      
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = n_inverse_->data(),
@@ -608,6 +725,96 @@ namespace heongpu
         cudaMemcpyAsync(message.data(), message_gpu.data(),
                         slot_count_ * sizeof(Complex64), cudaMemcpyDeviceToHost,
                         stream);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__ void HEEncoder<Scheme::CKKS>::encode_coeff_ckks(
+        Plaintext<Scheme::CKKS>& plain, const std::vector<double>& message,
+        const double scale, const cudaStream_t stream)
+    {
+        DeviceVector<Data64> output_memory(n * Q_size_, stream);
+
+        DeviceVector<double> message_gpu(n, stream);
+        cudaMemsetAsync(message_gpu.data(), 0, n * sizeof(double), stream);
+        cudaMemcpyAsync(message_gpu.data(), message.data(),
+                        message.size() * sizeof(double), cudaMemcpyHostToDevice,
+                        stream);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        encode_coeff_kernel_double_to_rns<<<dim3(((n) >> 8), 1, 1), 256, 0,
+                                            stream>>>(
+            output_memory.data(), message_gpu.data(), modulus_->data(), Q_size_,
+            scale, two_pow_64, n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        // Apply NTT to move to NTT domain
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::FORWARD,
+            .ntt_layout = gpuntt::PerPolynomial, 
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .stream = stream};
+
+        gpuntt::GPU_NTT_Inplace(output_memory.data(), ntt_table_->data(),
+                                modulus_->data(), cfg_ntt, Q_size_, Q_size_);
+
+        plain.scale_ = scale;
+        plain.memory_set(std::move(output_memory));
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__ void
+    HEEncoder<Scheme::CKKS>::decode_coeff_ckks(std::vector<double>& message,
+                                               Plaintext<Scheme::CKKS>& plain,
+                                               const cudaStream_t stream)
+    {
+        int current_modulus_count = Q_size_ - plain.depth_;
+
+        DeviceVector<double> message_gpu(n, stream);
+        DeviceVector<Data64> temp_plain(n * current_modulus_count, stream);
+
+        // Apply INTT to get back to coefficient domain
+        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::INVERSE,
+            .ntt_layout = gpuntt::PerPolynomial, 
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .mod_inverse = n_inverse_->data(),
+            .stream = stream};
+
+        gpuntt::GPU_INTT(plain.data(), temp_plain.data(), intt_table_->data(),
+                        modulus_->data(), cfg_intt, current_modulus_count,
+                        current_modulus_count);
+
+        int counter = Q_size_;
+        int location1 = 0;
+        int location2 = 0;
+        for (int i = 0; i < plain.depth_; i++)
+        {
+            location1 += counter;
+            location2 += (counter * counter);
+            counter--;
+        }
+
+        decode_coeff_kernel_rns_to_double<<<dim3((n >> 8), 1, 1), 256, 0,
+                                            stream>>>(
+            message_gpu.data(), temp_plain.data(), modulus_->data(),
+            Mi_inv_->data() + location1, Mi_->data() + location2,
+            upper_half_threshold_->data() + location1,
+            decryption_modulus_->data() + location1, current_modulus_count,
+            plain.scale_, two_pow_64, n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        message.resize(n);
+        cudaMemcpyAsync(message.data(), message_gpu.data(), n * sizeof(double),
+                        cudaMemcpyDeviceToHost, stream);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
     }
 

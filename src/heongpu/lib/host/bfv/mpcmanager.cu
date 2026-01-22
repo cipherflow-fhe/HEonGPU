@@ -48,7 +48,7 @@ namespace heongpu
         plain_modulus_ = context.plain_modulus_;
         plain_modulus2_ = context.plain_modulus2_;
 
-        Q_mod_t_ = context.Q_mod_t_;
+        // Q_mod_t_ = context.Q_mod_t_; // @company CipherFlow
 
         upper_threshold_ = context.upper_threshold_;
 
@@ -64,9 +64,9 @@ namespace heongpu
 
         Qi_inverse_ = context.Qi_inverse_;
 
-        mulq_inv_t_ = context.mulq_inv_t_;
+        // mulq_inv_t_ = context.mulq_inv_t_; // @company CipherFlow
 
-        mulq_inv_gamma_ = context.mulq_inv_gamma_;
+        // mulq_inv_gamma_ = context.mulq_inv_gamma_; // @company CipherFlow
 
         inv_gamma_ = context.inv_gamma_;
 
@@ -1651,7 +1651,7 @@ namespace heongpu
 
         gpuntt::GPU_INTT_Inplace(ct1, intt_table_->data(), modulus_->data(),
                                 cfg_intt, Q_size_, Q_size_);
-
+        
         col_boot_enc<<<dim3((n >> 8), Q_size_, 1), 256, 0, stream>>>(
             ct0, h1, rand_message_memory.data(), modulus_->data(),
             plain_modulus_, Q_mod_t_, upper_threshold_,

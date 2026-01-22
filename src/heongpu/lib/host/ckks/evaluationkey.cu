@@ -56,6 +56,67 @@ namespace heongpu
         }
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__ Relinkey<Scheme::CKKS>::Relinkey(HEContext<Scheme::CKKS>& context,
+                                             const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        key_type = context.keyswitching_type_;
+
+        ring_size = context.n;
+        Q_prime_size_ = context.Q_prime_size;
+        Q_size_ = context.Q_size;
+
+        storage_type_ = options.storage_;
+
+        switch (static_cast<int>(context.keyswitching_type_))
+        {
+            case 1: // KEYSWITCHING_METHOD_I
+            {
+                relinkey_size_ = 2 * Q_size_ * Q_prime_size_ * ring_size;
+            }
+            break;
+            case 2: // KEYSWITCHING_METHOD_II
+            {
+                d_ = context.d_leveled->operator[](0);
+                relinkey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+            }
+            break;
+            case 3: // KEYSWITCHING_METHOD_III
+            {
+                d_ = context.d_leveled->operator[](0);
+                d_tilda_ = context.d_tilda_leveled->operator[](0);
+                r_prime_ = context.r_prime_leveled;
+
+                int max_depth = Q_size_ - 1;
+                for (int i = 0; i < max_depth; i++)
+                {
+                    relinkey_size_leveled_.push_back(
+                        2 * context.d_leveled->operator[](i) *
+                        context.d_tilda_leveled->operator[](i) * r_prime_ *
+                        ring_size);
+                }
+            }
+            break;
+            default:
+                break;
+        }
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_location_ = DeviceVector<Data64>(relinkey_size_, options.stream_);
+        } else {
+            host_location_ = HostVector<Data64>(relinkey_size_);
+        }
+    }
+
     void Relinkey<Scheme::CKKS>::store_in_device(cudaStream_t stream)
     {
         if (storage_type_ == storage_type::DEVICE)
@@ -595,6 +656,106 @@ namespace heongpu
         }
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __host__
+    Galoiskey<Scheme::CKKS>::Galoiskey(HEContext<Scheme::CKKS>& context,
+                                        const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        key_type = context.keyswitching_type_;
+        int n_power = context.n_power;
+        ring_size = context.n;
+        Q_prime_size_ = context.Q_prime_size;
+        Q_size_ = context.Q_size;
+
+        storage_type_ = options.storage_;
+
+        customized = false;
+
+        group_order_ = 5;
+
+        switch (static_cast<int>(context.keyswitching_type_))
+        {
+            case 1: // KEYSWITCHING_METHOD_I
+            {
+                galoiskey_size_ = 2 * Q_size_ * Q_prime_size_ * ring_size;
+
+                int galois = 0;
+                for (int i = 0; i < n_power-1; i++)
+                {
+                    int power = pow(2, i);
+                    galois =
+                        steps_to_galois_elt(power, ring_size, group_order_);
+                    galois_elt[power] = galois;
+                }
+                for (int i = 0; i < n_power-2; i++)
+                {
+                    int power = pow(2, i);
+                    galois =
+                        steps_to_galois_elt((-power), ring_size, group_order_);
+                    galois_elt[(-power)] = galois;
+                    
+                }
+            }
+            break;
+            case 2: // KEYSWITCHING_METHOD_II
+            {
+                for (int i = 0; i < n_power-1; i++)
+                {
+                    int power = pow(2, i);
+                    galois_elt[power] =
+                        steps_to_galois_elt(power, ring_size, group_order_);
+                }
+                for (int i = 0; i < n_power-2; i++)
+                {
+                    int power = pow(2, i);
+                    galois_elt[(-power)] =
+                        steps_to_galois_elt((-power), ring_size, group_order_);
+                }
+
+                galois_elt_zero =
+                    steps_to_galois_elt(0, ring_size, group_order_);
+
+                d_ = context.d_leveled->operator[](0);
+                galoiskey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+            }
+            break;
+            case 3: // KEYSWITCHING_METHOD_III
+                throw std::invalid_argument(
+                    "Galoiskey does not support KEYSWITCHING_METHOD_III");
+                break;
+            default:
+                throw std::invalid_argument("Invalid Key Switching Type");
+                break;
+        }
+
+        if (storage_type_ == storage_type::HOST)
+        {
+            for (const auto& galois : galois_elt)
+            {
+                host_location_[galois.second] =
+                    HostVector<Data64>(galoiskey_size_);
+            }
+
+            zero_host_location_ = HostVector<Data64>(galoiskey_size_);
+        } else {
+             for (const auto& galois : galois_elt)
+            {
+                device_location_[galois.second] =
+                    DeviceVector<Data64>(galoiskey_size_, options.stream_);
+            }
+
+            zero_device_location_ = DeviceVector<Data64>(galoiskey_size_, options.stream_);
+        }
+    }
+
     __host__
     Galoiskey<Scheme::CKKS>::Galoiskey(HEContext<Scheme::CKKS>& context,
                                        std::vector<int>& shift_vec)
@@ -705,6 +866,79 @@ namespace heongpu
                 break;
         }
     }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__
+    Galoiskey<Scheme::CKKS>::Galoiskey(HEContext<Scheme::CKKS>& context,
+                                       std::vector<uint32_t>& galois_elts,
+                                       const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        key_type = context.keyswitching_type_;
+
+        ring_size = context.n;
+        Q_prime_size_ = context.Q_prime_size;
+        Q_size_ = context.Q_size;
+
+        storage_type_ = options.storage_;
+
+        customized = true;
+
+        group_order_ = 5;
+
+        switch (static_cast<int>(context.keyswitching_type_))
+        {
+            case 1: // KEYSWITCHING_METHOD_I
+            {
+                galois_elt_zero =
+                    steps_to_galois_elt(0, ring_size, group_order_);
+                galoiskey_size_ = 2 * Q_size_ * Q_prime_size_ * ring_size;
+                custom_galois_elt = galois_elts;
+            }
+            break;
+            case 2: // KEYSWITCHING_METHOD_II
+            {
+                d_ = context.d_leveled->operator[](0);
+                galois_elt_zero =
+                    steps_to_galois_elt(0, ring_size, group_order_);
+                galoiskey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+                custom_galois_elt = galois_elts;
+            }
+            break;
+            case 3: // KEYSWITCHING_METHOD_III
+                throw std::invalid_argument(
+                    "Galoiskey does not support KEYSWITCHING_METHOD_III");
+                break;
+            default:
+                throw std::invalid_argument("Invalid Key Switching Type");
+                break;
+        }
+
+        if (storage_type_ == storage_type::HOST)
+        {
+            for (const auto& galois : custom_galois_elt) {
+                host_location_[galois] =
+                    HostVector<Data64>(galoiskey_size_);
+            }
+
+            zero_host_location_ = HostVector<Data64>(galoiskey_size_);
+        } else {
+            for (const auto& galois : custom_galois_elt) {
+                device_location_[galois] =
+                    DeviceVector<Data64>(galoiskey_size_, options.stream_);
+            }
+
+            zero_device_location_ = DeviceVector<Data64>(galoiskey_size_, options.stream_);
+        }
+    }
+
 
     void Galoiskey<Scheme::CKKS>::store_in_device(cudaStream_t stream)
     {
@@ -1040,6 +1274,57 @@ namespace heongpu
             default:
                 throw std::invalid_argument("Invalid Key Switching Type");
                 break;
+        }
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__
+    Switchkey<Scheme::CKKS>::Switchkey(HEContext<Scheme::CKKS>& context,
+                                        const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        key_type = context.keyswitching_type_;
+
+        ring_size = context.n;
+        Q_prime_size_ = context.Q_prime_size;
+        Q_size_ = context.Q_size;
+
+        storage_type_ = options.storage_;
+
+        switch (static_cast<int>(context.keyswitching_type_))
+        {
+            case 1: // KEYSWITCHING_METHOD_I
+            {
+                switchkey_size_ = 2 * Q_size_ * Q_prime_size_ * ring_size;
+            }
+            break;
+            case 2: // KEYSWITCHING_METHOD_II
+            {
+                d_ = context.d_leveled->operator[](0);
+                switchkey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+            }
+            break;
+            case 3: // KEYSWITCHING_METHOD_III Galoiskey
+                throw std::invalid_argument(
+                    "Switchkey does not support KEYSWITCHING_METHOD_III");
+                break;
+            default:
+                throw std::invalid_argument("Invalid Key Switching Type");
+                break;
+        }
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_location_ = DeviceVector<Data64>(switchkey_size_, options.stream_);
+        } else {
+            host_location_ = HostVector<Data64>(switchkey_size_);
         }
     }
 

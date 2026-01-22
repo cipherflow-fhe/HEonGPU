@@ -254,6 +254,8 @@ namespace heongpu
         int d_tilda_;
         int r_prime_;
 
+        std::shared_ptr<std::vector<int>> d_leveled_; // @company CipherFlow
+
         std::shared_ptr<DeviceVector<Modulus64>> B_prime_;
         std::shared_ptr<DeviceVector<Root64>> B_prime_ntt_tables_;
         std::shared_ptr<DeviceVector<Root64>> B_prime_intt_tables_;
@@ -269,6 +271,8 @@ namespace heongpu
         std::shared_ptr<DeviceVector<int>> I_j_;
         std::shared_ptr<DeviceVector<int>> I_location_;
         std::shared_ptr<DeviceVector<int>> Sk_pair_;
+
+        std::shared_ptr<std::vector<DeviceVector<int>>> Sk_pair_leveled_; // @company CipherFlow
     };
 
 } // namespace heongpu

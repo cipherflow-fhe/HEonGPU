@@ -176,11 +176,18 @@ namespace heongpu
         Data64* half, Data64* half_mod, Data64* last_q_modinv, int galois_elt,
         int n_power, int Q_prime_size, int Q_size, int first_Q_prime_size,
         int first_Q_size, int P_size);
-
+    
     __global__ void divide_round_lastq_permute_bfv_kernel(
         Data64* input, Data64* ct, Data64* output, Modulus64* modulus,
         Data64* half, Data64* half_mod, Data64* last_q_modinv, int galois_elt,
         int n_power, int Q_prime_size, int Q_size, int P_size);
+    
+    // @company CipherFlow
+    __global__ void divide_round_lastq_permute_bfv_kernel(
+        Data64* input, Data64* ct, Data64* output, Modulus64* modulus,
+        Data64* half, Data64* half_mod, Data64* last_q_modinv, int galois_elt,
+        int n_power, int Q_prime_size, int Q_size, int first_Q_prime_size,
+        int first_Q_size, int P_size); 
 
     ///////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////

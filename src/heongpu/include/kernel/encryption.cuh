@@ -25,6 +25,16 @@ namespace heongpu
                              Data64 Q_mod_t, Data64 upper_threshold,
                              Data64* coeffdiv_plain, int n_power,
                              int Q_prime_size, int Q_size, int P_size);
+    
+   // @company CipherFlow
+    __global__ void
+    enc_div_lastq_bfv_kernel(Data64* pk, Data64* e, Data64* plain, Data64* ct,
+                             Modulus64* modulus, Data64* half, Data64* half_mod,
+                             Data64* last_q_modinv, Modulus64 plain_mod,
+                             Data64* Q_mod_t, Data64 upper_threshold,
+                             Data64* coeffdiv_plain, int n_power,
+                             int Q_prime_size, int Q_size, 
+                             int first_Q_prime_size, int first_Q_size, int P_size);
 
     __global__ void enc_div_lastq_ckks_kernel(Data64* pk, Data64* e, Data64* ct,
                                               Modulus64* modulus, Data64* half,

@@ -76,7 +76,9 @@ namespace heongpu
                                           Plaintext<Scheme::BFV>& plaintext,
                                           const cudaStream_t stream)
     {
-        DeviceVector<Data64> output_memory((2 * n * Q_size_), stream);
+        int current_decomp_count = Q_size_ - ciphertext.depth_; // @company CipherFlow
+
+        DeviceVector<Data64> output_memory((2 * n * current_decomp_count), stream); // @company CipherFlow
 
         DeviceVector<Data64> gpu_space(5 * Q_prime_size_ * n, stream);
         Data64* u_poly = gpu_space.data();
@@ -120,14 +122,30 @@ namespace heongpu
         gpuntt::GPU_INTT_Inplace(pk_u_poly, intt_table_->data(),
                                 modulus_->data(), cfg_intt, 2 * Q_prime_size_,
                                 Q_prime_size_);
+        
+        // @company CipherFlow begin ---
+        int first_rns_mod_count = Q_prime_size_;
+        int current_rns_mod_count = Q_prime_size_ - ciphertext.depth_;
 
-        enc_div_lastq_bfv_kernel<<<dim3((n >> 8), Q_size_, 2), 256, 0,
+        int first_decomp_count = Q_size_;
+
+        int counter = Q_size_;
+        int location = 0;
+        for (int i = 0; i < ciphertext.depth_; i++)
+        {
+            location += counter;
+            counter--;
+        }
+        // @company CipherFlow end ---
+
+        enc_div_lastq_bfv_kernel<<<dim3((n >> 8), current_decomp_count, 2), 256, 0,
                                    stream>>>(
             pk_u_poly, error_poly, plaintext.data(), output_memory.data(),
             modulus_->data(), half_->data(), half_mod_->data(),
-            last_q_modinv_->data(), plain_modulus_, Q_mod_t_, upper_threshold_,
-            coeeff_div_plainmod_->data(), n_power, Q_prime_size_, Q_size_,
-            P_size_);
+            last_q_modinv_->data(), plain_modulus_, Q_mod_t_->data() + location, upper_threshold_,
+            coeeff_div_plainmod_->data() + location, n_power, current_rns_mod_count, current_decomp_count, 
+            first_rns_mod_count, first_decomp_count,
+            P_size_); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         ciphertext.memory_set(std::move(output_memory));

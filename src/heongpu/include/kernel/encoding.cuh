@@ -33,6 +33,17 @@ namespace heongpu
     __global__ void double_to_complex_kernel(double* input, Complex64* output);
 
     __global__ void complex_to_double_kernel(Complex64* input, double* output);
+    
+    // @company CipherFlow
+    __global__ void encode_coeff_kernel_double_to_rns(
+        Data64* plaintext, double* message, Modulus64* modulus,
+        int coeff_modulus_count, double scale, double two_pow_64, int n_power);
+    
+    // @company CipherFlow
+    __global__ void decode_coeff_kernel_rns_to_double(
+        double* message, Data64* plaintext, Modulus64* modulus, Data64* Mi_inv,
+        Data64* Mi, Data64* upper_half_threshold, Data64* decryption_modulus,
+        int coeff_modulus_count, double scale, double two_pow_64, int n_power);
 
     __global__ void
     encode_kernel_ckks_conversion(Data64* plaintext, Complex64* complex_message,
@@ -45,6 +56,12 @@ namespace heongpu
         Data64* Mi_inv, Data64* Mi, Data64* upper_half_threshold,
         Data64* decryption_modulus, int coeff_modulus_count, double scale,
         double two_pow_64, int* reverse_order, int n_power);
+    
+    // @company CipherFlow
+    __global__ void
+    ringt_to_pt_kernel(Data64* plaintext_ringt, Data64* plaintext,
+                        Modulus64* modulus,
+                        int n_power);
 
 } // namespace heongpu
 #endif // HEONGPU_ENCODING_H

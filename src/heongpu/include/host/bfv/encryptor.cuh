@@ -143,7 +143,8 @@ namespace heongpu
         Modulus64 plain_modulus_;
 
         // BFV
-        Data64 Q_mod_t_;
+        // Data64 Q_mod_t_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> Q_mod_t_; // @company CipherFlow
 
         Data64 upper_threshold_;
 

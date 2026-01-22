@@ -21,12 +21,21 @@ namespace heongpu
     __global__ void sk_multiplicationx3(Data64* ct1, Data64* sk,
                                         Modulus64* modulus, int n_power,
                                         int decomp_mod_count);
-
+    
     __global__ void decryption_kernel(Data64* ct0, Data64* ct1, Data64* plain,
                                       Modulus64* modulus, Modulus64 plain_mod,
                                       Modulus64 gamma, Data64* Qi_t,
                                       Data64* Qi_gamma, Data64* Qi_inverse,
                                       Data64 mulq_inv_t, Data64 mulq_inv_gamma,
+                                      Data64 inv_gamma, int n_power,
+                                      int decomp_mod_count);
+    
+    // @company CipherFlow 
+    __global__ void decryption_kernel(Data64* ct0, Data64* ct1, Data64* plain,
+                                      Modulus64* modulus, Modulus64 plain_mod,
+                                      Modulus64 gamma, Data64* Qi_t,
+                                      Data64* Qi_gamma, Data64* Qi_inverse,
+                                      Data64* mulq_inv_t, Data64* mulq_inv_gamma,
                                       Data64 inv_gamma, int n_power,
                                       int decomp_mod_count);
 
@@ -36,6 +45,15 @@ namespace heongpu
                                         Data64* Qi_t, Data64* Qi_gamma,
                                         Data64* Qi_inverse, Data64 mulq_inv_t,
                                         Data64 mulq_inv_gamma, Data64 inv_gamma,
+                                        int n_power, int decomp_mod_count);
+    
+    // @company CipherFlow
+    __global__ void decryption_kernelx3(Data64* ct0, Data64* ct1, Data64* ct2,
+                                        Data64* plain, Modulus64* modulus,
+                                        Modulus64 plain_mod, Modulus64 gamma,
+                                        Data64* Qi_t, Data64* Qi_gamma,
+                                        Data64* Qi_inverse, Data64* mulq_inv_t,
+                                        Data64* mulq_inv_gamma, Data64 inv_gamma,
                                         int n_power, int decomp_mod_count);
 
     __global__ void coeff_multadd(Data64* input1, Data64* input2,
@@ -77,10 +95,17 @@ namespace heongpu
                                              const Data64* sk, Data64* output,
                                              const Modulus64* modulus,
                                              int n_power, int decomp_mod_count);
-
+    
     __global__ void col_boot_add_random_and_errors(
         Data64* ct, const Data64* errors, const Data64* random_plain,
         const Modulus64* modulus, Modulus64 plain_mod, Data64 Q_mod_t,
+        Data64 upper_threshold, Data64* coeffdiv_plain, int n_power,
+        int decomp_mod_count);
+    
+    // @company CipherFlow
+    __global__ void col_boot_add_random_and_errors(
+        Data64* ct, const Data64* errors, const Data64* random_plain,
+        const Modulus64* modulus, Modulus64 plain_mod, Data64* Q_mod_t,
         Data64 upper_threshold, Data64* coeffdiv_plain, int n_power,
         int decomp_mod_count);
 
@@ -88,6 +113,14 @@ namespace heongpu
                                  const Data64* random_plain,
                                  const Modulus64* modulus, Modulus64 plain_mod,
                                  Data64 Q_mod_t, Data64 upper_threshold,
+                                 Data64* coeffdiv_plain, int n_power,
+                                 int decomp_mod_count);
+
+    // @company CipherFlow
+    __global__ void col_boot_enc(Data64* ct, const Data64* h,
+                                 const Data64* random_plain,
+                                 const Modulus64* modulus, Modulus64 plain_mod,
+                                 Data64* Q_mod_t, Data64 upper_threshold,
                                  Data64* coeffdiv_plain, int n_power,
                                  int decomp_mod_count);
 

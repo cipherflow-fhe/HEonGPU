@@ -32,6 +32,58 @@ namespace heongpu
                 : false;
 
         rescale_required_ = false;
+        if (coeff_modulus_count_ - (depth_ + 1) > 0) { // @company CipherFlow
+            rescale_required_ = true;
+        }
+
+        relinearization_required_ = false;
+        scale_ = 0;
+
+        storage_type_ = options.storage_;
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_locations_ =
+                DeviceVector<Data64>(cipher_memory_size, options.stream_);
+        }
+        else
+        {
+            host_locations_ = HostVector<Data64>(cipher_memory_size);
+        }
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__
+    Ciphertext<Scheme::CKKS>::Ciphertext(HEContext<Scheme::CKKS>& context, int level,
+                                         const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        coeff_modulus_count_ = context.Q_size;
+        cipher_size_ = 2;
+        ring_size_ = context.n;
+        depth_ = coeff_modulus_count_ - (level + 1);
+
+        int cipher_memory_size =
+            cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_;
+
+        in_ntt_domain_ =
+            (static_cast<int>(scheme_) == static_cast<int>(scheme_type::ckks))
+                ? true
+                : false;
+
+        rescale_required_ = false;
+
+        if (level > 0) {
+            rescale_required_ = true;
+        }
+
         relinearization_required_ = false;
         scale_ = 0;
 

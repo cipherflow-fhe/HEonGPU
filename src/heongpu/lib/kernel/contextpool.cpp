@@ -77,6 +77,8 @@ namespace heongpu
                 {
                     n_ = poly_degree;
 
+                    m = P_size; // @company CipherFlow
+
                     first_Qtilda_ = modulus.size();
                     first_Q_ = first_Qtilda_ - P_size;
                     first_P_ = P_size;
@@ -89,6 +91,28 @@ namespace heongpu
                     d_vector_ = d_counter(first_Q_, m);
 
                     d_ = d_vector_.size();
+
+                    // @company CipherFlow begin ---
+                    for (int i = 0; i < first_Q_; i++)
+                    {
+                        level_Q_.push_back(first_Q_ - i);
+                        level_Qtilda_.push_back(first_Qtilda_ - i);
+                    }
+
+                    for (int i = 0; i < first_Q_; i++)
+                    {
+                        std::vector<int> d_vector_inner =
+                            d_counter(level_Q_[i], m);
+
+                        level_d_vector_.push_back(d_vector_inner);
+                    }
+
+                    for (int i = 0; i < first_Q_; i++)
+                    {
+                        level_d_.push_back(level_d_vector_[i].size());
+                    }
+                    // @company CipherFlow end ---
+
                 }
                 else if (static_cast<int>(method) == 3)
                 {
@@ -126,7 +150,7 @@ namespace heongpu
                 {
                     n_ = poly_degree;
 
-                    m = P_size;
+                    m = P_size; 
 
                     first_Qtilda_ = modulus.size();
                     first_Q_ = first_Qtilda_ - P_size;

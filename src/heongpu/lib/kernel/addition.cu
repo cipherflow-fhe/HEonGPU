@@ -84,6 +84,44 @@ namespace heongpu
         }
     }
 
+    // @company CipherFlow
+    __global__ void addition_plain_bfv_poly(Data64* cipher, Data64* plain,
+                                            Data64* output, Modulus64* modulus,
+                                            Modulus64 plain_mod, Data64* Q_mod_t,
+                                            Data64 upper_threshold,
+                                            Data64* coeffdiv_plain, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int block_y = blockIdx.y; // rns count
+        int block_z = blockIdx.z; // cipher size
+
+        int location =
+            idx + (block_y << n_power) + ((gridDim.y * block_z) << n_power);
+
+        if (block_z == 0)
+        {
+            Data64 message = plain[idx];
+            Data64 ciphertext = cipher[location];
+
+            Data64 fix = message * Q_mod_t[0];
+            fix = fix + upper_threshold;
+            fix = int(fix / plain_mod.value);
+
+            Data64 result = OPERATOR_GPU_64::mult(
+                message, coeffdiv_plain[block_y], modulus[block_y]);
+            result = OPERATOR_GPU_64::add(result, fix, modulus[block_y]);
+
+            result = OPERATOR_GPU_64::add(result, ciphertext, modulus[block_y]);
+
+            output[location] = result;
+        }
+        else
+        {
+            Data64 ciphertext = cipher[location];
+            output[location] = ciphertext;
+        }
+    }
+
     __global__ void addition_plain_bfv_poly_inplace(
         Data64* cipher, Data64* plain, Data64* output, Modulus64* modulus,
         Modulus64 plain_mod, Data64 Q_mod_t, Data64 upper_threshold,
@@ -98,6 +136,33 @@ namespace heongpu
         Data64 ciphertext = cipher[location];
 
         Data64 fix = message * Q_mod_t;
+        fix = fix + upper_threshold;
+        fix = int(fix / plain_mod.value);
+
+        Data64 result = OPERATOR_GPU_64::mult(message, coeffdiv_plain[block_y],
+                                              modulus[block_y]);
+        result = OPERATOR_GPU_64::add(result, fix, modulus[block_y]);
+
+        result = OPERATOR_GPU_64::add(result, ciphertext, modulus[block_y]);
+
+        output[location] = result;
+    }
+
+    // @company CipherFlow
+    __global__ void addition_plain_bfv_poly_inplace(
+        Data64* cipher, Data64* plain, Data64* output, Modulus64* modulus,
+        Modulus64 plain_mod, Data64* Q_mod_t, Data64 upper_threshold,
+        Data64* coeffdiv_plain, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int block_y = blockIdx.y; // rns count
+
+        int location = idx + (block_y << n_power);
+
+        Data64 message = plain[idx];
+        Data64 ciphertext = cipher[location];
+
+        Data64 fix = message * Q_mod_t[0];
         fix = fix + upper_threshold;
         fix = int(fix / plain_mod.value);
 
@@ -146,6 +211,43 @@ namespace heongpu
         }
     }
 
+    // @company CipherFlow
+    __global__ void
+    substraction_plain_bfv_poly(Data64* cipher, Data64* plain, Data64* output,
+                                Modulus64* modulus, Modulus64 plain_mod,
+                                Data64* Q_mod_t, Data64 upper_threshold,
+                                Data64* coeffdiv_plain, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int block_y = blockIdx.y; // rns count
+        int block_z = blockIdx.z; // cipher size
+
+        int location =
+            idx + (block_y << n_power) + ((gridDim.y * block_z) << n_power);
+        if (block_z == 0)
+        {
+            Data64 message = plain[idx];
+            Data64 ciphertext = cipher[location];
+
+            Data64 fix = message * Q_mod_t[0];
+            fix = fix + upper_threshold;
+            fix = int(fix / plain_mod.value);
+
+            Data64 result = OPERATOR_GPU_64::mult(
+                message, coeffdiv_plain[block_y], modulus[block_y]);
+            result = OPERATOR_GPU_64::add(result, fix, modulus[block_y]);
+
+            result = OPERATOR_GPU_64::sub(ciphertext, result, modulus[block_y]);
+
+            output[location] = result;
+        }
+        else
+        {
+            Data64 ciphertext = cipher[location];
+            output[location] = ciphertext;
+        }
+    }
+
     __global__ void substraction_plain_bfv_poly_inplace(
         Data64* cipher, Data64* plain, Data64* output, Modulus64* modulus,
         Modulus64 plain_mod, Data64 Q_mod_t, Data64 upper_threshold,
@@ -160,6 +262,33 @@ namespace heongpu
         Data64 ciphertext = cipher[location];
 
         Data64 fix = message * Q_mod_t;
+        fix = fix + upper_threshold;
+        fix = int(fix / plain_mod.value);
+
+        Data64 result = OPERATOR_GPU_64::mult(message, coeffdiv_plain[block_y],
+                                              modulus[block_y]);
+        result = OPERATOR_GPU_64::add(result, fix, modulus[block_y]);
+
+        result = OPERATOR_GPU_64::sub(ciphertext, result, modulus[block_y]);
+
+        output[location] = result;
+    }
+    
+    // @company CipherFlow
+    __global__ void substraction_plain_bfv_poly_inplace(
+        Data64* cipher, Data64* plain, Data64* output, Modulus64* modulus,
+        Modulus64 plain_mod, Data64* Q_mod_t, Data64 upper_threshold,
+        Data64* coeffdiv_plain, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int block_y = blockIdx.y; // rns count
+
+        int location = idx + (block_y << n_power);
+
+        Data64 message = plain[idx];
+        Data64 ciphertext = cipher[location];
+
+        Data64 fix = message * Q_mod_t[0];
         fix = fix + upper_threshold;
         fix = int(fix / plain_mod.value);
 

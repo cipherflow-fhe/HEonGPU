@@ -18,6 +18,51 @@ namespace heongpu
         scheme_ = context.scheme_;
         plain_size_ = context.n;
         storage_type_ = options.storage_;
+
+        coeff_modulus_count_ = context.Q_size; // @company CipherFlow
+        is_ringt_ = true; // @company CipherFlow
+        depth_ = context.Q_size-1; // @company CipherFlow
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_locations_ =
+                DeviceVector<Data64>(plain_size_, options.stream_);
+        }
+        else
+        {
+            host_locations_ = HostVector<Data64>(plain_size_);
+        }
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__ Plaintext<Scheme::BFV>::Plaintext(HEContext<Scheme::BFV>& context, int level,
+                                               const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        storage_type_ = options.storage_;
+
+        coeff_modulus_count_ = context.Q_size; 
+        is_ringt_ = false; 
+        depth_ = coeff_modulus_count_ - (level + 1);
+
+        plain_size_ = context.n * (coeff_modulus_count_ - depth_);
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_locations_ =
+                DeviceVector<Data64>(plain_size_, options.stream_);
+        }
+        else
+        {
+            host_locations_ = HostVector<Data64>(plain_size_);
+        }
     }
 
     void Plaintext<Scheme::BFV>::store_in_device(cudaStream_t stream)
@@ -95,6 +140,12 @@ namespace heongpu
 
             os.write((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
 
+            os.write((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_));
+
+            os.write((char*) &is_ringt_, sizeof(is_ringt_));
+
+            os.write((char*) &depth_, sizeof(depth_));
+
             os.write((char*) &plaintext_generated_,
                      sizeof(plaintext_generated_));
 
@@ -141,6 +192,12 @@ namespace heongpu
             is.read((char*) &plain_size_, sizeof(plain_size_));
 
             is.read((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
+
+            is.read((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_));
+
+            is.read((char*) &is_ringt_, sizeof(is_ringt_));
+
+            is.read((char*) &depth_, sizeof(depth_));
 
             is.read((char*) &plaintext_generated_,
                     sizeof(plaintext_generated_));

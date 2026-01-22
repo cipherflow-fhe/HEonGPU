@@ -169,14 +169,17 @@ namespace heongpu
                                             "domain");
                                     }
                                     add_plain_bfv(input1_, input2_, output_,
-                                                  options.stream_);
-
+                                                    options.stream_);
+                                                    
                                     output_.scheme_ = scheme_;
                                     output_.ring_size_ = n;
                                     output_.coeff_modulus_count_ = Q_size_;
                                     output_.cipher_size_ = 2;
+                                    output_.depth_ = input1_.depth_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
+                                    output_.rescale_required_ =
+                                        input1_.rescale_required_; // @company CipherFlow
                                     output_.relinearization_required_ =
                                         input1_.relinearization_required_;
                                     output_.ciphertext_generated_ = true;
@@ -279,8 +282,11 @@ namespace heongpu
                                     output_.ring_size_ = n;
                                     output_.coeff_modulus_count_ = Q_size_;
                                     output_.cipher_size_ = 2;
+                                    output_.depth_ = input1_.depth_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
+                                    output_.rescale_required_ =
+                                        input1_.rescale_required_; // @company CipherFlow
                                     output_.relinearization_required_ =
                                         input1_.relinearization_required_;
                                     output_.ciphertext_generated_ = true;
@@ -373,10 +379,13 @@ namespace heongpu
 
                                     output_.scheme_ = scheme_;
                                     output_.ring_size_ = n;
-                                    output_.coeff_modulus_count_ = Q_size_;
+                                    output_.coeff_modulus_count_ =
+                                        input1_.coeff_modulus_count_;
                                     output_.cipher_size_ = 3;
+                                    output_.depth_ = input1_.depth_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
+                                    output_.rescale_required_ = false; // @company CipherFlow
                                     output_.relinearization_required_ = true;
                                     output_.ciphertext_generated_ = true;
                                 },
@@ -426,7 +435,9 @@ namespace heongpu
                     "operation!");
             }
 
-            if (input1.memory_size() < (2 * n * Q_size_))
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (2 * n * current_decomp_count)) // @company CipherFlow
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
             }
@@ -467,8 +478,10 @@ namespace heongpu
                                     output_.ring_size_ = n;
                                     output_.coeff_modulus_count_ = Q_size_;
                                     output_.cipher_size_ = 2;
+                                    output_.depth_ = input1_.depth_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
+                                    output_.rescale_required_ = input1_.rescale_required_; // @company CipherFlow
                                     output_.relinearization_required_ =
                                         input1_.relinearization_required_;
                                     output_.ciphertext_generated_ = true;
@@ -497,6 +510,109 @@ namespace heongpu
 
         /**
          * @brief Performs in-place relinearization of the given ciphertext
+         * using the provided relinearization key.
+         *
+         * @param input1 Ciphertext to be relinearized.
+         * @param output Ciphertext that has been relinearized.
+         * @param relin_key The relinearization key used for the process.
+         * @param options Execution options for the relinearization process
+         * (optional).
+         *
+         * @company CipherFlow
+         */
+        __host__ void
+        relinearize(Ciphertext<Scheme::BFV>& input1,
+                    Ciphertext<Scheme::BFV>& output,
+                    Relinkey<Scheme::BFV>& relin_key,
+                    const ExecutionOptions& options = ExecutionOptions())
+        {
+            if ((!input1.relinearization_required_))
+            {
+                throw std::invalid_argument(
+                    "Ciphertexts can not use relinearization, since no "
+                    "non-linear part!");
+            }
+
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (3 * n * current_decomp_count)) // @company CipherFlow
+            {
+                throw std::invalid_argument("Invalid Ciphertexts size!");
+            }
+
+            input_storage_manager(
+                input1,
+                [&](Ciphertext<Scheme::BFV>& input1_)
+                {
+                    output_storage_manager(
+                        output,
+                        [&](Ciphertext<Scheme::BFV>& output_)
+                        {
+                            switch (static_cast<int>(relin_key.key_type))
+                            {
+                                case 1: // KEYSWITCHING_METHOD_I
+
+                                    if (output_.in_ntt_domain_ != false)
+                                    {
+                                        throw std::invalid_argument(
+                                            "Ciphertext should be in intt "
+                                            "domain");
+                                    }
+
+                                    relinearize_seal_method_inplace(
+                                        input1_, relin_key, options.stream_);
+
+                                    break;
+                                case 2: // KEYSWITCHING_METHOD_II
+
+                                    if (output_.in_ntt_domain_ != false)
+                                    {
+                                        throw std::invalid_argument(
+                                            "Ciphertext should be in intt "
+                                            "domain");
+                                    }
+
+                                    relinearize_external_product_method2(
+                                        input1_, output_, relin_key,
+                                        options.stream_);
+
+                                    break;
+                                case 3: // KEYSWITCHING_METHOD_III
+
+                                    if (output_.in_ntt_domain_ != false)
+                                    {
+                                        throw std::invalid_argument(
+                                            "Ciphertext should be in intt "
+                                            "domain");
+                                    }
+
+                                    relinearize_external_product_method_inplace(
+                                        output_, relin_key, options.stream_);
+
+                                    break;
+                                default:
+                                    throw std::invalid_argument(
+                                        "Invalid Key Switching Type");
+                                    break;
+                            }
+                            output_.relinearization_required_ = false;
+                            output_.cipher_size_ = 2;
+
+                            output_.scheme_ = scheme_; 
+                            output_.ring_size_ = n; 
+                            output_.coeff_modulus_count_ = Q_size_; 
+                            output_.depth_ = input1_.depth_; 
+                            output_.in_ntt_domain_ = input1_.in_ntt_domain_; 
+                            output_.rescale_required_ = (output_.coeff_modulus_count_ - (output_.depth_ + 1) > 0) ? true: false; 
+                            output_.ciphertext_generated_ = true; 
+                        },
+                        options);
+                },
+                options, (&input1 == &output));
+        }
+
+        /**
+         * @brief Performs in-place relinearization of the given ciphertext
          * using the provided relin key.
          *
          * @param input1 Ciphertext to be relinearized.
@@ -513,7 +629,9 @@ namespace heongpu
                     "non-linear part!");
             }
 
-            if (input1.memory_size() < (3 * n * Q_size_))
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (3 * n * current_decomp_count)) // @company CipherFlow
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
             }
@@ -567,6 +685,8 @@ namespace heongpu
                     }
 
                     input1_.relinearization_required_ = false;
+                    input1_.cipher_size_ = 2;
+                    input1_.rescale_required_ = (input1_.coeff_modulus_count_ - (input1_.depth_ + 1) > 0) ? true: false; // @company CipherFlow
                 },
                 options, true);
         }
@@ -591,7 +711,9 @@ namespace heongpu
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
 
-            if (input1.memory_size() < (2 * n * Q_size_))
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (2 * n * current_decomp_count)) // @company CipherFlow
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
             }
@@ -659,7 +781,10 @@ namespace heongpu
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
                             output_.cipher_size_ = 2;
+                            output_.depth_ = input1_.depth_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                            output_.rescale_required_ =
+                                input1_.rescale_required_; // @company CipherFlow
                             output_.relinearization_required_ =
                                 input1_.relinearization_required_;
                             output_.ciphertext_generated_ = true;
@@ -708,7 +833,9 @@ namespace heongpu
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
 
-            if (input1.memory_size() < (2 * n * Q_size_))
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (2 * n * current_decomp_count)) // @company CipherFlow
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
             }
@@ -763,7 +890,10 @@ namespace heongpu
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
                             output_.cipher_size_ = 2;
+                            output_.depth_ = input1_.depth_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                            output_.rescale_required_ =
+                                input1_.rescale_required_; // @company CipherFlow
                             output_.relinearization_required_ =
                                 input1_.relinearization_required_;
                             output_.ciphertext_generated_ = true;
@@ -772,6 +902,110 @@ namespace heongpu
                 },
                 options, (&input1 == &output));
         }
+
+        /**
+         * @brief Rescales a ciphertext in-place, modifying the input
+         * ciphertext.
+         *
+         * @param input1 Ciphertext to be rescaled.
+         * 
+         * @company CipherFlow
+         */
+        __host__ void
+        rescale_inplace(Ciphertext<Scheme::BFV>& input1,
+                        const ExecutionOptions& options = ExecutionOptions())
+        {
+            if ((!input1.rescale_required_) || input1.relinearization_required_)
+            {
+                throw std::invalid_argument("Ciphertexts can not be rescaled!");
+            }
+
+            int current_decomp_count = Q_size_ - input1.depth_;
+
+            if (input1.memory_size() < (2 * n * current_decomp_count))
+            {
+                throw std::invalid_argument("Invalid Ciphertexts size!");
+            }
+
+            input_storage_manager(
+                input1, [&](Ciphertext<Scheme::BFV>& input1_)
+                { rescale_inplace_bfv_leveled(input1_, options.stream_); },
+                options, true);
+            
+            if (current_decomp_count - 1 <= 1) {
+                input1.rescale_required_ = false;
+            }
+
+        }
+        
+        /**
+         * @company CipherFlow
+         */
+        __host__ void
+        rescale_inplace_bfv_leveled(Ciphertext<Scheme::BFV>& input1,
+                                     const cudaStream_t stream);
+        
+        /**
+         * @brief Rescales a ciphertext in-place, modifying the input
+         * ciphertext.
+         *
+         * @param input1 Ciphertext to be rescaled.
+         * 
+         * @company CipherFlow
+         */
+        __host__ void
+        rescale(Ciphertext<Scheme::BFV>& input1,
+                Ciphertext<Scheme::BFV>& output,
+                const ExecutionOptions& options = ExecutionOptions())
+        {
+            if ((!input1.rescale_required_) || input1.relinearization_required_)
+            {
+                throw std::invalid_argument("Ciphertexts can not be rescaled!");
+            }
+
+            int current_decomp_count = Q_size_ - input1.depth_;
+
+            if (input1.memory_size() < (2 * n * current_decomp_count))
+            {
+                throw std::invalid_argument("Invalid Ciphertexts size!");
+            }
+ 
+            input_storage_manager(
+                input1,
+                [&](Ciphertext<Scheme::BFV>& input1_)
+                {
+                    output_storage_manager(
+                        output,
+                        [&](Ciphertext<Scheme::BFV>& output_)
+                        {
+                            rescale_bfv_leveled(input1_, output_, options.stream_);
+
+                            output_.scheme_ = scheme_;
+                            output_.ring_size_ = n;
+                            output_.coeff_modulus_count_ = Q_size_;
+                            output_.cipher_size_ = 2;
+                            output_.depth_ = input1_.depth_+1; 
+                            output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                            if (current_decomp_count - 1 <= 1) {
+                                output_.rescale_required_ = false;
+                            } else {
+                                output_.rescale_required_ = true;
+                            }
+                            output_.relinearization_required_ =
+                                input1_.relinearization_required_;
+                            output_.ciphertext_generated_ = true;
+                        },
+                        options);
+                },
+                options, (&input1 == &output));
+        }
+
+        /**
+         * @company CipherFlow
+         */
+        __host__ void
+        rescale_bfv_leveled(Ciphertext<Scheme::BFV>& input1, Ciphertext<Scheme::BFV>& output,
+                            const cudaStream_t stream);
 
         /**
          * @brief Applies a Galois automorphism to the ciphertext and stores the
@@ -795,7 +1029,9 @@ namespace heongpu
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
 
-            if (input1.memory_size() < (2 * n * Q_size_))
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (2 * n * current_decomp_count)) // @company CipherFlow
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
             }
@@ -857,7 +1093,10 @@ namespace heongpu
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
                             output_.cipher_size_ = 2;
+                            output_.depth_ = input1_.depth_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                            output_.rescale_required_ =
+                                input1_.rescale_required_; // @company CipherFlow
                             output_.relinearization_required_ =
                                 input1_.relinearization_required_;
                             output_.ciphertext_generated_ = true;
@@ -904,7 +1143,9 @@ namespace heongpu
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
 
-            if (input1.memory_size() < (2 * n * Q_size_))
+            int current_decomp_count = Q_size_ - input1.depth_; // @company CipherFlow
+
+            if (input1.memory_size() < (2 * n * current_decomp_count)) // @company CipherFlow
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
             }
@@ -966,7 +1207,10 @@ namespace heongpu
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
                             output_.cipher_size_ = 2;
+                            output_.depth_ = input1_.depth_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                            output_.rescale_required_ =
+                                input1_.rescale_required_; // @company CipherFlow
                             output_.relinearization_required_ =
                                 input1_.relinearization_required_;
                             output_.ciphertext_generated_ = true;
@@ -1215,7 +1459,7 @@ namespace heongpu
         __host__ void add_plain_bfv(Ciphertext<Scheme::BFV>& input1,
                                     Plaintext<Scheme::BFV>& input2,
                                     Ciphertext<Scheme::BFV>& output,
-                                    const cudaStream_t stream);
+                                    const cudaStream_t stream);                        
 
         __host__ void add_plain_bfv_inplace(Ciphertext<Scheme::BFV>& input1,
                                             Plaintext<Scheme::BFV>& input2,
@@ -1254,6 +1498,13 @@ namespace heongpu
         __host__ void relinearize_external_product_method2_inplace(
             Ciphertext<Scheme::BFV>& input1, Relinkey<Scheme::BFV>& relin_key,
             const cudaStream_t stream);
+
+        /**
+         * @company CipherFlow
+         */
+        __host__ void relinearize_external_product_method2(
+            Ciphertext<Scheme::BFV>& input1, Ciphertext<Scheme::BFV>& output,
+            Relinkey<Scheme::BFV>& relin_key, const cudaStream_t stream);
 
         ///////////////////////////////////////////////////
 
@@ -1335,7 +1586,8 @@ namespace heongpu
 
         int n_power;
 
-        int bsk_mod_count_;
+        // int bsk_mod_count_; // @company CipherFlow
+        std::vector<int> bsk_mod_count_; // @company CipherFlow
 
         // New
         int Q_prime_size_;
@@ -1359,7 +1611,8 @@ namespace heongpu
             inv_punctured_prod_mod_base_array_;
         std::shared_ptr<DeviceVector<Data64>> base_change_matrix_m_tilde_;
 
-        Data64 inv_prod_q_mod_m_tilde_;
+        // Data64 inv_prod_q_mod_m_tilde_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> inv_prod_q_mod_m_tilde_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Data64>> inv_m_tilde_mod_Bsk_;
         std::shared_ptr<DeviceVector<Data64>> prod_q_mod_Bsk_;
         std::shared_ptr<DeviceVector<Data64>> inv_prod_q_mod_Bsk_;
@@ -1370,7 +1623,8 @@ namespace heongpu
         std::shared_ptr<DeviceVector<Data64>> base_change_matrix_msk_;
 
         std::shared_ptr<DeviceVector<Data64>> inv_punctured_prod_mod_B_array_;
-        Data64 inv_prod_B_mod_m_sk_;
+        // Data64 inv_prod_B_mod_m_sk_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> inv_prod_B_mod_m_sk_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Data64>> prod_B_mod_q_;
 
         std::shared_ptr<DeviceVector<Modulus64>> q_Bsk_merge_modulus_;
@@ -1384,7 +1638,8 @@ namespace heongpu
         Data64 upper_threshold_;
         std::shared_ptr<DeviceVector<Data64>> upper_halfincrement_;
 
-        Data64 Q_mod_t_;
+        // Data64 Q_mod_t_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> Q_mod_t_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Data64>> coeeff_div_plainmod_;
 
         /////////
@@ -1392,6 +1647,12 @@ namespace heongpu
         int d;
         int d_tilda;
         int r_prime;
+
+        // @company CipherFlow begin --- 
+        std::shared_ptr<std::vector<int>> l_leveled_;
+        std::shared_ptr<std::vector<int>> l_tilda_leveled_;
+        std::shared_ptr<std::vector<int>> d_leveled_;
+        // @company CipherFlow end --- 
 
         std::shared_ptr<DeviceVector<Modulus64>> B_prime_;
         std::shared_ptr<DeviceVector<Root64>> B_prime_ntt_tables_;
@@ -1413,8 +1674,29 @@ namespace heongpu
         std::shared_ptr<DeviceVector<int>> I_j_;
         std::shared_ptr<DeviceVector<int>> I_location_;
         std::shared_ptr<DeviceVector<int>> Sk_pair_;
+        
+        // @company CipherFlow begin --- 
+        std::shared_ptr<std::vector<DeviceVector<Data64>>>
+            base_change_matrix_D_to_Qtilda_leveled_;
+        std::shared_ptr<std::vector<DeviceVector<Data64>>>
+            Mi_inv_D_to_Qtilda_leveled_;
+        std::shared_ptr<std::vector<DeviceVector<Data64>>>
+            prod_D_to_Qtilda_leveled_;
+        
+        std::shared_ptr<std::vector<DeviceVector<int>>> I_j_leveled_;
+        std::shared_ptr<std::vector<DeviceVector<int>>> I_location_leveled_;
+        std::shared_ptr<std::vector<DeviceVector<int>>> Sk_pair_leveled_;
+        
+        std::shared_ptr<DeviceVector<int>> prime_location_leveled_;
+        // @company CipherFlow end --- 
 
         /////////
+
+        // Leveled Rescale, @company CipherFlow begin --- 
+        std::shared_ptr<DeviceVector<Data64>> rescaled_last_q_modinv_;
+        std::shared_ptr<DeviceVector<Data64>> rescaled_half_;
+        std::shared_ptr<DeviceVector<Data64>> rescaled_half_mod_;
+        // @company CipherFlow end --- 
 
         std::vector<Modulus64> prime_vector_; // in CPU
 
@@ -1425,6 +1707,9 @@ namespace heongpu
         DeviceVector<int> new_input_locations_;
         int* new_prime_locations;
         int* new_input_locations;
+        
+        DeviceVector<int> new_prime_bsk_locations_; // @company CipherFlow
+        int* new_prime_bsk_locations; // @company CipherFlow
 
         // Encode params
         int slot_count_;
@@ -1498,7 +1783,7 @@ namespace heongpu
                 [&](Ciphertext<Scheme::BFV>& input1_)
                 {
                     output_storage_manager(
-                        output,
+                        output, 
                         [&](Ciphertext<Scheme::BFV>& output_)
                         { one_minus_cipher(input1_, output_, options_inner); },
                         options);

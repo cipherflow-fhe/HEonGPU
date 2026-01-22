@@ -112,6 +112,69 @@ namespace heongpu
         }
     }
 
+    __global__ void E_diagonal_generate_kernel_cf(Complex64* output, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int block_y = blockIdx.y; // matrix index
+        int logk = block_y + 1;
+        int output_location = matrix_reverse_location(block_y);
+
+        int n = 1 << n_power;
+        int v_size = 1 << (n_power - logk);
+
+        int index1 = idx & ((v_size << 1) - 1);
+        int index2 = index1 >> (n_power - logk);
+        Complex64 W1(1.0, 0.0);
+        Complex64 W2(0.0, 0.0);
+        Complex64 W3(0.0, 0.0);
+
+        if (block_y == 0)
+        {
+            double angle = M_PI / (v_size << 2);
+            Complex64 omega_4n(cos(angle), sin(angle));
+            int expo = exponent_calculation(index1, n);
+
+            Complex64 W = omega_4n.exp(expo);
+            Complex64 W_neg = W; // W.negate();
+
+            if (index2 == 1)
+            {
+                W1 = W_neg;
+                W2 = Complex64(1.0, 0.0);
+            }
+            else
+            {
+                W2 = W;
+            }
+
+            output[(output_location << n_power) + idx] = W1;
+            output[((output_location + 1) << n_power) + idx] = W2;
+        }
+        else
+        {
+            double angle = M_PI / (v_size << 2);
+            Complex64 omega_4n(cos(angle), sin(angle));
+            int expo = exponent_calculation(index1, n);
+
+            Complex64 W = omega_4n.exp(expo);
+            Complex64 W_neg = W; // W.negate();
+
+            if (index2 == 1)
+            {
+                W1 = W_neg;
+                W3 = Complex64(1.0, 0.0);
+            }
+            else
+            {
+                W2 = W;
+            }
+
+            output[(output_location << n_power) + idx] = W1;
+            output[((output_location + 1) << n_power) + idx] = W2;
+            output[((output_location + 2) << n_power) + idx] = W3;
+        }
+    }
+
     __global__ void E_diagonal_inverse_generate_kernel(Complex64* output,
                                                        int n_power)
     {
@@ -155,6 +218,62 @@ namespace heongpu
                 W1 = omega_4n.inverse();
                 W1 = W1.exp(expo);
                 W1 = W1 / Complex64(2.0, 0.0);
+                W2 = Complex64(0.0, 0.0);
+                W3 = W1.negate();
+            }
+
+            output[(output_location << n_power) + idx] = W1;
+            output[((output_location + 1) << n_power) + idx] = W2;
+            output[((output_location + 2) << n_power) + idx] = W3;
+        }
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_inverse_generate_kernel_cf(Complex64* output,
+                                                               int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int block_y = blockIdx.y; // matrix index
+        int logk = block_y + 1;
+        int output_location = matrix_location(block_y);
+
+        int n = 1 << n_power;
+        int v_size = 1 << (n_power - logk);
+
+        int index1 = idx & ((v_size << 1) - 1);
+        int index2 = index1 >> (n_power - logk);
+        Complex64 W1(1.0, 0.0);
+        Complex64 W2(1.0, 0.0);
+        Complex64 W3(0.0, 0.0);
+
+        if (block_y == 0)
+        {
+            double angle = M_PI / (v_size << 2);
+            Complex64 omega_4n(cos(angle), sin(angle));
+            int expo = exponent_calculation(index1, n);
+
+            if (index2 == 1)
+            {
+                W1 = omega_4n.inverse();
+                W1 = W1.exp(expo);
+                W2 = W1.negate();
+            } 
+
+            output[(output_location << n_power) + idx] = W1;
+            output[((output_location + 1) << n_power) + idx] = W2;
+        }
+        else
+        {
+            double angle = M_PI / (v_size << 2);
+            Complex64 omega_4n(cos(angle), sin(angle));
+            int expo = exponent_calculation(index1, n);
+
+            if (index2 == 1)
+            {
+                W1 = omega_4n.inverse();
+                W1 = W1.exp(expo);
                 W2 = Complex64(0.0, 0.0);
                 W3 = W1.negate();
             }
@@ -251,6 +370,57 @@ namespace heongpu
         }
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_matrix_mult_kernel_cf(
+        Complex64* input, Complex64* output, Complex64* temp, int* diag_index,
+        int* input_index, int* output_index, int iteration_count,
+        int R_matrix_counter, int output_index_counter, int mul_index,
+        bool first, bool last, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        int L_matrix_loc_ = 3 + 3 * (mul_index-1);
+        int L_matrix_size = (last) ? 2 : 3;
+
+        int R_matrix_counter_ = R_matrix_counter;
+        int output_index_counter_ = output_index_counter;
+        int iter_R_m = iteration_count;
+        if (first)
+        {
+            for (int i = 0; i < iter_R_m; i++)
+            {
+                Complex64 R_m = input[idx + (i << n_power)];
+                int output_location = output_index[output_index_counter_];
+                output[(output_location << n_power) + idx] = R_m;
+                output_index_counter_++;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < iter_R_m; i++)
+            {
+                int input_loc_idx = input_index[R_matrix_counter_ - 3 + i];
+
+                for (int j = 0; j < L_matrix_size; j++)
+                {
+                    int diag_index_ = diag_index[L_matrix_loc_ + j];
+
+                    Complex64 R_m = rotated_access(temp + (input_loc_idx << n_power), diag_index_, idx, n_power);
+                    Complex64 L_m = input[idx + ((L_matrix_loc_ + j) << n_power)];
+
+                    int output_location = output_index[output_index_counter_];
+                    Complex64 res = output[(output_location << n_power) + idx];
+                    res = res + (L_m * R_m);
+                    output[(output_location << n_power) + idx] = res;
+
+                    output_index_counter_++;
+                }
+            }
+        }
+    }
+
     __global__ void E_diagonal_inverse_matrix_mult_kernel(
         Complex64* input, Complex64* output, Complex64* temp, int* diag_index,
         int* input_index, int* output_index, int iteration_count,
@@ -312,6 +482,59 @@ namespace heongpu
         }
     }
 
+
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_inverse_matrix_mult_kernel_cf(
+        Complex64* input, Complex64* output, Complex64* temp, int* diag_index,
+        int* input_index, int* output_index, int iteration_count,
+        int R_matrix_counter, int output_index_counter, int mul_index,
+        bool first1, bool first2, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        int offset = first1 ? 2 : 3;
+        int L_matrix_loc_ = offset + 3 * (mul_index-1);
+        int L_matrix_size = 3;
+        
+        int R_matrix_counter_ = R_matrix_counter;
+        int output_index_counter_ = output_index_counter;
+        int iter_R_m = iteration_count;
+        if (first2)
+        {
+            for (int i = 0; i < iter_R_m; i++)
+            {
+                Complex64 R_m = input[idx + (i << n_power)];
+                int output_location = output_index[output_index_counter_];
+                output[(output_location << n_power) + idx] = R_m;
+                output_index_counter_++;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < iter_R_m; i++)
+            {
+                int input_loc_idx = input_index[R_matrix_counter_ - offset + i];
+
+                for (int j = 0; j < L_matrix_size; j++)
+                {
+                    int diag_index_ = diag_index[L_matrix_loc_ + j];
+                    
+                    Complex64 R_m = rotated_access(temp + (input_loc_idx << n_power), diag_index_, idx, n_power);
+                    Complex64 L_m = input[idx + ((L_matrix_loc_ + j) << n_power)];
+
+                    int output_location = output_index[output_index_counter_];
+                    Complex64 res = output[(output_location << n_power) + idx];
+                    res = res + (L_m * R_m);
+                    output[(output_location << n_power) + idx] = res;
+
+                    output_index_counter_++;
+                }
+            }
+        }
+    }
+    
     __global__ void complex_vector_scale_kernel(Complex64* data,
                                                 Complex64 scaling, int n_power)
     {

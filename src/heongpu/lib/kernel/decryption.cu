@@ -40,7 +40,7 @@ namespace heongpu
         ct1[index + (decomp_mod_count << n_power)] =
             OPERATOR_GPU_64::mult(ct_2, sk2_, modulus[block_y]);
     }
-
+    
     __global__ void decryption_kernel(Data64* ct0, Data64* ct1, Data64* plain,
                                       Modulus64* modulus, Modulus64 plain_mod,
                                       Modulus64 gamma, Data64* Qi_t,
@@ -84,6 +84,79 @@ namespace heongpu
 
         sum_t = OPERATOR_GPU_64::mult(sum_t, mulq_inv_t, plain_mod);
         sum_gamma = OPERATOR_GPU_64::mult(sum_gamma, mulq_inv_gamma, gamma);
+
+        Data64 gamma_2 = gamma.value >> 1;
+
+        if (sum_gamma > gamma_2)
+        {
+            Data64 gamma_ =
+                OPERATOR_GPU_64::reduce_forced(gamma.value, plain_mod);
+            Data64 sum_gamma_ =
+                OPERATOR_GPU_64::reduce_forced(sum_gamma, plain_mod);
+
+            Data64 result = OPERATOR_GPU_64::sub(gamma_, sum_gamma_, plain_mod);
+            result = OPERATOR_GPU_64::add(sum_t, result, plain_mod);
+            result = OPERATOR_GPU_64::mult(result, inv_gamma, plain_mod);
+
+            plain[idx] = result;
+        }
+        else
+        {
+            Data64 sum_t_ = OPERATOR_GPU_64::reduce_forced(sum_t, plain_mod);
+            Data64 sum_gamma_ =
+                OPERATOR_GPU_64::reduce_forced(sum_gamma, plain_mod);
+
+            Data64 result = OPERATOR_GPU_64::sub(sum_t_, sum_gamma_, plain_mod);
+            result = OPERATOR_GPU_64::mult(result, inv_gamma, plain_mod);
+
+            plain[idx] = result;
+        }
+    }
+
+    // @company CipherFlow
+    __global__ void decryption_kernel(Data64* ct0, Data64* ct1, Data64* plain,
+                                      Modulus64* modulus, Modulus64 plain_mod,
+                                      Modulus64 gamma, Data64* Qi_t,
+                                      Data64* Qi_gamma, Data64* Qi_inverse,
+                                      Data64* mulq_inv_t, Data64* mulq_inv_gamma,
+                                      Data64 inv_gamma, int n_power,
+                                      int decomp_mod_count)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring_size
+
+        Data64 sum_t = 0;
+        Data64 sum_gamma = 0;
+
+#pragma unroll
+        for (int i = 0; i < decomp_mod_count; i++)
+        {
+            int location = idx + (i << n_power);
+
+            Data64 mt =
+                OPERATOR_GPU_64::add(ct0[location], ct1[location], modulus[i]);
+
+            Data64 gamma_ =
+                OPERATOR_GPU_64::reduce_forced(gamma.value, modulus[i]);
+
+            mt = OPERATOR_GPU_64::mult(mt, plain_mod.value, modulus[i]);
+
+            mt = OPERATOR_GPU_64::mult(mt, gamma_, modulus[i]);
+
+            mt = OPERATOR_GPU_64::mult(mt, Qi_inverse[i], modulus[i]);
+
+            Data64 mt_in_t = OPERATOR_GPU_64::reduce_forced(mt, plain_mod);
+            Data64 mt_in_gamma = OPERATOR_GPU_64::reduce_forced(mt, gamma);
+
+            mt_in_t = OPERATOR_GPU_64::mult(mt_in_t, Qi_t[i], plain_mod);
+            mt_in_gamma =
+                OPERATOR_GPU_64::mult(mt_in_gamma, Qi_gamma[i], gamma);
+
+            sum_t = OPERATOR_GPU_64::add(sum_t, mt_in_t, plain_mod);
+            sum_gamma = OPERATOR_GPU_64::add(sum_gamma, mt_in_gamma, gamma);
+        }
+
+        sum_t = OPERATOR_GPU_64::mult(sum_t, mulq_inv_t[0], plain_mod);
+        sum_gamma = OPERATOR_GPU_64::mult(sum_gamma, mulq_inv_gamma[0], gamma);
 
         Data64 gamma_2 = gamma.value >> 1;
 
@@ -158,6 +231,81 @@ namespace heongpu
 
         sum_t = OPERATOR_GPU_64::mult(sum_t, mulq_inv_t, plain_mod);
         sum_gamma = OPERATOR_GPU_64::mult(sum_gamma, mulq_inv_gamma, gamma);
+
+        Data64 gamma_2 = gamma.value >> 1;
+
+        if (sum_gamma > gamma_2)
+        {
+            Data64 gamma_ =
+                OPERATOR_GPU_64::reduce_forced(gamma.value, plain_mod);
+            Data64 sum_gamma_ =
+                OPERATOR_GPU_64::reduce_forced(sum_gamma, plain_mod);
+
+            Data64 result = OPERATOR_GPU_64::sub(gamma_, sum_gamma_, plain_mod);
+            result = OPERATOR_GPU_64::add(sum_t, result, plain_mod);
+            result = OPERATOR_GPU_64::mult(result, inv_gamma, plain_mod);
+
+            plain[idx] = result;
+        }
+        else
+        {
+            Data64 sum_t_ = OPERATOR_GPU_64::reduce_forced(sum_t, plain_mod);
+            Data64 sum_gamma_ =
+                OPERATOR_GPU_64::reduce_forced(sum_gamma, plain_mod);
+
+            Data64 result = OPERATOR_GPU_64::sub(sum_t_, sum_gamma_, plain_mod);
+            result = OPERATOR_GPU_64::mult(result, inv_gamma, plain_mod);
+
+            plain[idx] = result;
+        }
+    }
+
+    // @company CipherFlow
+    __global__ void decryption_kernelx3(Data64* ct0, Data64* ct1, Data64* ct2,
+                                        Data64* plain, Modulus64* modulus,
+                                        Modulus64 plain_mod, Modulus64 gamma,
+                                        Data64* Qi_t, Data64* Qi_gamma,
+                                        Data64* Qi_inverse, Data64* mulq_inv_t,
+                                        Data64* mulq_inv_gamma, Data64 inv_gamma,
+                                        int n_power, int decomp_mod_count)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring_size
+
+        Data64 sum_t = 0;
+        Data64 sum_gamma = 0;
+
+#pragma unroll
+        for (int i = 0; i < decomp_mod_count; i++)
+        {
+            int location = idx + (i << n_power);
+
+            Data64 mt =
+                OPERATOR_GPU_64::add(ct0[location], ct1[location], modulus[i]);
+
+            mt = OPERATOR_GPU_64::add(mt, ct2[location], modulus[i]);
+
+            Data64 gamma_ =
+                OPERATOR_GPU_64::reduce_forced(gamma.value, modulus[i]);
+
+            mt = OPERATOR_GPU_64::mult(mt, plain_mod.value, modulus[i]);
+
+            mt = OPERATOR_GPU_64::mult(mt, gamma_, modulus[i]);
+
+            mt = OPERATOR_GPU_64::mult(mt, Qi_inverse[i], modulus[i]);
+
+            Data64 mt_in_t = OPERATOR_GPU_64::reduce_forced(mt, plain_mod);
+            Data64 mt_in_gamma = OPERATOR_GPU_64::reduce_forced(mt, gamma);
+
+            mt_in_t = OPERATOR_GPU_64::mult(mt_in_t, Qi_t[i], plain_mod);
+            mt_in_gamma =
+                OPERATOR_GPU_64::mult(mt_in_gamma, Qi_gamma[i], gamma);
+
+            sum_t = OPERATOR_GPU_64::add(sum_t, mt_in_t, plain_mod);
+            sum_gamma = OPERATOR_GPU_64::add(sum_gamma, mt_in_gamma, gamma);
+        }
+
+        sum_t = OPERATOR_GPU_64::mult(sum_t, mulq_inv_t[0], plain_mod);
+        sum_gamma = OPERATOR_GPU_64::mult(sum_gamma, mulq_inv_gamma[0], gamma);
 
         Data64 gamma_2 = gamma.value >> 1;
 
@@ -553,6 +701,48 @@ namespace heongpu
         ct[in_index] = ct_;
     }
 
+    // @company CipherFlow
+    __global__ void col_boot_add_random_and_errors(
+        Data64* ct, const Data64* errors, const Data64* random_plain,
+        const Modulus64* modulus, Modulus64 plain_mod, Data64* Q_mod_t,
+        Data64 upper_threshold, Data64* coeffdiv_plain, int n_power,
+        int decomp_mod_count)
+    {
+        const int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring_size
+        const int block_y = blockIdx.y; // decomp_mod_count
+        const int block_z = blockIdx.z; // 2
+
+        int in_index = idx + (block_y << n_power) +
+                       ((decomp_mod_count * block_z) << n_power);
+
+        const Modulus64 mod = modulus[block_y];
+        Data64 ct_ = ct[in_index];
+        Data64 error = errors[in_index];
+
+        // Compute ∆M
+        Data64 random_message = random_plain[idx];
+        Data64 fix = random_message * Q_mod_t[0];
+        fix = fix + upper_threshold;
+        fix = int(fix / plain_mod.value);
+        Data64 delta_m =
+            OPERATOR_GPU_64::mult(random_message, coeffdiv_plain[block_y], mod);
+        delta_m = OPERATOR_GPU_64::add(delta_m, fix, mod);
+
+        // Add error term
+        ct_ = OPERATOR_GPU_64::add(ct_, error, mod);
+
+        if (block_z == 0)
+        {
+            ct_ = OPERATOR_GPU_64::sub(ct_, delta_m, mod);
+        }
+        else
+        {
+            ct_ = OPERATOR_GPU_64::add(ct_, delta_m, mod);
+        }
+
+        ct[in_index] = ct_;
+    }
+
     __global__ void col_boot_enc(Data64* ct, const Data64* h,
                                  const Data64* random_plain,
                                  const Modulus64* modulus, Modulus64 plain_mod,
@@ -571,6 +761,36 @@ namespace heongpu
         // Compute ∆M
         Data64 random_message = random_plain[idx];
         Data64 fix = random_message * Q_mod_t;
+        fix = fix + upper_threshold;
+        fix = int(fix / plain_mod.value);
+        Data64 delta_m =
+            OPERATOR_GPU_64::mult(random_message, coeffdiv_plain[block_y], mod);
+        delta_m = OPERATOR_GPU_64::add(delta_m, fix, mod);
+
+        Data64 ct_ = OPERATOR_GPU_64::add(h_, delta_m, mod);
+
+        ct[in_index] = ct_;
+    }
+
+    // @company CipherFlow
+    __global__ void col_boot_enc(Data64* ct, const Data64* h,
+                                 const Data64* random_plain,
+                                 const Modulus64* modulus, Modulus64 plain_mod,
+                                 Data64* Q_mod_t, Data64 upper_threshold,
+                                 Data64* coeffdiv_plain, int n_power,
+                                 int decomp_mod_count)
+    {
+        const int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring_size
+        const int block_y = blockIdx.y; // decomp_mod_count
+
+        int in_index = idx + (block_y << n_power);
+
+        const Modulus64 mod = modulus[block_y];
+        Data64 h_ = h[in_index];
+
+        // Compute ∆M
+        Data64 random_message = random_plain[idx];
+        Data64 fix = random_message * Q_mod_t[0];
         fix = fix + upper_threshold;
         fix = int(fix / plain_mod.value);
         Data64 delta_m =

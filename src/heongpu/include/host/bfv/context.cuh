@@ -104,9 +104,17 @@ namespace heongpu
                                          Modulus64& plain_mod, int size);
 
         // BFV MULTIPLICATION PARAMETERS
+        // @company CipherFlow
+        int calculate_bsk_modulus_size(int size);
+
         std::vector<Data64>
         generate_base_matrix_q_Bsk(std::vector<Modulus64> primes,
                                    std::vector<Modulus64> bsk_mod, int size);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_base_matrix_q_Bsk(std::vector<Modulus64> primes,
+                                   std::vector<Modulus64> bsk_mod, int size, int bsize);
 
         std::vector<Data64>
         generate_base_change_matrix_m_tilde(std::vector<Modulus64> primes,
@@ -122,26 +130,57 @@ namespace heongpu
         std::vector<Data64>
         generate_prod_q_mod_Bsk(std::vector<Modulus64> primes,
                                 std::vector<Modulus64> bsk_mod, int size);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_prod_q_mod_Bsk(std::vector<Modulus64> primes,
+                                std::vector<Modulus64> bsk_mod, int size, int bsize);
 
         std::vector<Data64>
         generate_inv_prod_q_mod_Bsk(std::vector<Modulus64> primes,
                                     std::vector<Modulus64> bsk_mod, int size);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_inv_prod_q_mod_Bsk(std::vector<Modulus64> primes,
+                                    std::vector<Modulus64> bsk_mod, int size, int bsize);
 
         std::vector<Data64>
         generate_base_matrix_Bsk_q(std::vector<Modulus64> primes,
                                    std::vector<Modulus64> bsk_mod, int size);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_base_matrix_Bsk_q(std::vector<Modulus64> primes,
+                                   std::vector<Modulus64> bsk_mod, int size, int bsize);
 
         std::vector<Data64>
         generate_base_change_matrix_msk(std::vector<Modulus64> bsk_mod);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_base_change_matrix_msk(std::vector<Modulus64> bsk_mod, int size);
 
         std::vector<Data64>
         generate_inv_punctured_prod_mod_B_array(std::vector<Modulus64> bsk_mod);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_inv_punctured_prod_mod_B_array(std::vector<Modulus64> bsk_mod, int size);
 
         Data64 generate_inv_prod_B_mod_m_sk(std::vector<Modulus64> bsk_mod);
+        
+        // @company CipherFlow
+        Data64 generate_inv_prod_B_mod_m_sk(std::vector<Modulus64> bsk_mod, int size);
 
         std::vector<Data64>
         generate_prod_B_mod_q(std::vector<Modulus64> primes,
                               std::vector<Modulus64> bsk_mod, int size);
+        
+        // @company CipherFlow
+        std::vector<Data64>
+        generate_prod_B_mod_q(std::vector<Modulus64> primes,
+                              std::vector<Modulus64> bsk_mod, int size, int bsize);
 
         std::vector<Modulus64>
         generate_q_Bsk_merge_modulus(std::vector<Modulus64> primes,
@@ -199,7 +238,8 @@ namespace heongpu
 
         Modulus64 plain_modulus_;
 
-        int bsk_modulus;
+        // int bsk_modulus; // @company CipherFlow
+        std::vector<int> bsk_modulus; // @company CipherFlow
         int total_bit_count_;
 
         std::shared_ptr<DeviceVector<Modulus64>> modulus_;
@@ -223,7 +263,8 @@ namespace heongpu
             inv_punctured_prod_mod_base_array_;
         std::shared_ptr<DeviceVector<Data64>> base_change_matrix_m_tilde_;
 
-        Data64 inv_prod_q_mod_m_tilde_;
+        // Data64 inv_prod_q_mod_m_tilde_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> inv_prod_q_mod_m_tilde_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Data64>> inv_m_tilde_mod_Bsk_;
         std::shared_ptr<DeviceVector<Data64>> prod_q_mod_Bsk_;
         std::shared_ptr<DeviceVector<Data64>> inv_prod_q_mod_Bsk_;
@@ -232,7 +273,8 @@ namespace heongpu
         std::shared_ptr<DeviceVector<Data64>> base_change_matrix_msk_;
 
         std::shared_ptr<DeviceVector<Data64>> inv_punctured_prod_mod_B_array_;
-        Data64 inv_prod_B_mod_m_sk_;
+        // Data64 inv_prod_B_mod_m_sk_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> inv_prod_B_mod_m_sk_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Data64>> prod_B_mod_q_;
 
         std::shared_ptr<DeviceVector<Modulus64>> q_Bsk_merge_modulus_;
@@ -248,7 +290,8 @@ namespace heongpu
 
         Modulus64 gamma_;
         std::shared_ptr<DeviceVector<Data64>> coeeff_div_plainmod_;
-        Data64 Q_mod_t_;
+        // Data64 Q_mod_t_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> Q_mod_t_; // @company CipherFlow
 
         Data64 upper_threshold_;
         std::shared_ptr<DeviceVector<Data64>> upper_halfincrement_;
@@ -256,10 +299,20 @@ namespace heongpu
         std::shared_ptr<DeviceVector<Data64>> Qi_t_;
         std::shared_ptr<DeviceVector<Data64>> Qi_gamma_;
         std::shared_ptr<DeviceVector<Data64>> Qi_inverse_;
-
-        Data64 mulq_inv_t_;
-        Data64 mulq_inv_gamma_;
+        
+        // @company CipherFlow begin ---
+        std::shared_ptr<DeviceVector<Data64>> mulq_inv_t_; 
+        std::shared_ptr<DeviceVector<Data64>> mulq_inv_gamma_;
+        // Data64 mulq_inv_t_;
+        // Data64 mulq_inv_gamma_;
+        // @company CipherFlow end ---
         Data64 inv_gamma_;
+
+        // rescale parameters, @company CipherFlow begin ---
+        std::shared_ptr<DeviceVector<Data64>> rescaled_last_q_modinv_;
+        std::shared_ptr<DeviceVector<Data64>> rescaled_half_;
+        std::shared_ptr<DeviceVector<Data64>> rescaled_half_mod_;
+        // @company CipherFlow end ---
 
         // BFV noise budget calculation parameters
         std::shared_ptr<DeviceVector<Data64>> Mi_;
@@ -274,6 +327,13 @@ namespace heongpu
         int d;
         int d_tilda;
         int r_prime;
+        
+        // @company CipherFlow begin ---
+        int m_leveled;
+        std::shared_ptr<std::vector<int>> l_leveled;
+        std::shared_ptr<std::vector<int>> l_tilda_leveled;
+        std::shared_ptr<std::vector<int>> d_leveled; 
+        // @company CipherFlow end ---
 
         std::shared_ptr<DeviceVector<Modulus64>> B_prime_;
         std::shared_ptr<DeviceVector<Root64>> B_prime_ntt_tables_;
@@ -290,10 +350,27 @@ namespace heongpu
         std::shared_ptr<DeviceVector<Data64>> base_change_matrix_D_to_Q_tilda_;
         std::shared_ptr<DeviceVector<Data64>> Mi_inv_D_to_Q_tilda_;
         std::shared_ptr<DeviceVector<Data64>> prod_D_to_Q_tilda_;
+        
+        // @company CipherFlow begin ---
+        std::shared_ptr<std::vector<DeviceVector<Data64>>>
+            base_change_matrix_D_to_Qtilda_leveled;
+        std::shared_ptr<std::vector<DeviceVector<Data64>>>
+            Mi_inv_D_to_Qtilda_leveled;
+        std::shared_ptr<std::vector<DeviceVector<Data64>>>
+            prod_D_to_Qtilda_leveled;
+        // @company CipherFlow end ---
 
         std::shared_ptr<DeviceVector<int>> I_j_;
         std::shared_ptr<DeviceVector<int>> I_location_;
         std::shared_ptr<DeviceVector<int>> Sk_pair_;
+        
+        // @company CipherFlow begin ---
+        std::shared_ptr<std::vector<DeviceVector<int>>> I_j_leveled;
+        std::shared_ptr<std::vector<DeviceVector<int>>> I_location_leveled;
+        std::shared_ptr<std::vector<DeviceVector<int>>> Sk_pair_leveled;
+
+        std::shared_ptr<DeviceVector<int>> prime_location_leveled;
+        // @company CipherFlow end ---
     };
 
 } // namespace heongpu

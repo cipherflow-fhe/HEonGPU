@@ -20,14 +20,67 @@ namespace heongpu
         coeff_modulus_count_ = context.Q_size;
         cipher_size_ = 2;
         ring_size_ = context.n;
+        depth_ = 0; // @company CipherFlow
 
         int cipher_memory_size =
-            cipher_size_ * coeff_modulus_count_ * ring_size_;
+            cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_; // @company CipherFlow
 
         in_ntt_domain_ =
             (static_cast<int>(scheme_) == static_cast<int>(scheme_type::ckks))
                 ? true
                 : false;
+
+        rescale_required_ = false; // @company CipherFlow
+        if (coeff_modulus_count_ - (depth_ + 1) > 0) { // @company CipherFlow
+            rescale_required_ = true;
+        }
+        
+        relinearization_required_ = false;
+
+        storage_type_ = options.storage_;
+
+        if (storage_type_ == storage_type::DEVICE)
+        {
+            device_locations_ =
+                DeviceVector<Data64>(cipher_memory_size, options.stream_);
+        }
+        else
+        {
+            host_locations_ = HostVector<Data64>(cipher_memory_size);
+        }
+    }
+
+    /**
+     * @company CipherFlow
+     */
+    __host__
+    Ciphertext<Scheme::BFV>::Ciphertext(HEContext<Scheme::BFV>& context, int level,
+                                         const ExecutionOptions& options)
+    {
+        if (!context.context_generated_)
+        {
+            throw std::invalid_argument("HEContext is not generated!");
+        }
+
+        scheme_ = context.scheme_;
+        coeff_modulus_count_ = context.Q_size;
+        cipher_size_ = 2;
+        ring_size_ = context.n;
+        depth_ = coeff_modulus_count_ - (level + 1);
+
+        int cipher_memory_size =
+            cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_;
+
+        in_ntt_domain_ =
+            (static_cast<int>(scheme_) == static_cast<int>(scheme_type::ckks))
+                ? true
+                : false;
+
+        rescale_required_ = false;
+
+        if (level > 0) {
+            rescale_required_ = true;
+        }
 
         relinearization_required_ = false;
 
@@ -79,7 +132,7 @@ namespace heongpu
             else
             {
                 int cipher_memory_size =
-                    cipher_size_ * coeff_modulus_count_ * ring_size_;
+                    cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_; // @company CipherFlow
                 host_locations_ = HostVector<Data64>(cipher_memory_size);
                 cudaMemcpyAsync(host_locations_.data(),
                                 device_locations_.data(),
@@ -115,7 +168,7 @@ namespace heongpu
                                            cudaStream_t stream)
     {
         int cipher_memory_size =
-            cipher_size_ * coeff_modulus_count_ * ring_size_;
+            cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_; // @company CipherFlow
 
         if (cipher.size() < cipher_memory_size)
         {
@@ -140,7 +193,7 @@ namespace heongpu
                                            cudaStream_t stream)
     {
         int cipher_memory_size =
-            cipher_size_ * coeff_modulus_count_ * ring_size_;
+            cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_; // @company CipherFlow
 
         if (cipher.size() < cipher_memory_size)
         {
@@ -179,9 +232,13 @@ namespace heongpu
 
             os.write((char*) &cipher_size_, sizeof(cipher_size_));
 
+            os.write((char*) &depth_, sizeof(depth_)); // @company CipherFlow
+
             os.write((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
 
             os.write((char*) &storage_type_, sizeof(storage_type_));
+
+            os.write((char*) &rescale_required_, sizeof(rescale_required_)); // @company CipherFlow
 
             os.write((char*) &relinearization_required_,
                      sizeof(relinearization_required_));
@@ -192,7 +249,7 @@ namespace heongpu
             if (storage_type_ == storage_type::DEVICE)
             {
                 uint32_t ciphertext_memory_size =
-                    cipher_size_ * coeff_modulus_count_ * ring_size_;
+                    cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_; // @company CipherFlow
                 HostVector<Data64> host_locations_temp(ciphertext_memory_size);
                 cudaMemcpy(host_locations_temp.data(), device_locations_.data(),
                            ciphertext_memory_size * sizeof(Data64),
@@ -227,6 +284,11 @@ namespace heongpu
         {
             is.read((char*) &scheme_, sizeof(scheme_));
 
+            if (scheme_ != scheme_type::bfv) // @company CipherFlow
+            {
+                throw std::runtime_error("Invalid scheme binary!");
+            }
+
             is.read((char*) &ring_size_, sizeof(ring_size_));
 
             is.read((char*) &coeff_modulus_count_,
@@ -234,9 +296,13 @@ namespace heongpu
 
             is.read((char*) &cipher_size_, sizeof(cipher_size_));
 
+            is.read((char*) &depth_, sizeof(depth_)); // @company CipherFlow
+
             is.read((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
 
             is.read((char*) &storage_type_, sizeof(storage_type_));
+
+            is.read((char*) &rescale_required_, sizeof(rescale_required_)); // @company CipherFlow
 
             is.read((char*) &relinearization_required_,
                     sizeof(relinearization_required_));
@@ -252,7 +318,7 @@ namespace heongpu
                     sizeof(ciphertext_memory_size));
 
             if (ciphertext_memory_size !=
-                (cipher_size_ * ring_size_ * coeff_modulus_count_))
+                (cipher_size_ * ring_size_ * (coeff_modulus_count_ - depth_))) // @company CipherFlow
             {
                 throw std::runtime_error("Invalid ciphertext size!");
             }

@@ -144,7 +144,7 @@ namespace heongpu
                   Ciphertext<Scheme::CKKS>& output,
                   const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.depth_ != input2.depth_)
+            if (!input2.is_ringt_ && (input1.depth_ != input2.depth_)) // @company CipherFlow
             {
                 throw std::logic_error("Ciphertexts leveled are not equal");
             }
@@ -326,7 +326,7 @@ namespace heongpu
                   Ciphertext<Scheme::CKKS>& output,
                   const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.depth_ != input2.depth_)
+            if (!input2.is_ringt_ && (input1.depth_ != input2.depth_)) // @company CipherFlow
             {
                 throw std::logic_error("Ciphertexts leveled are not equal");
             }
@@ -519,12 +519,12 @@ namespace heongpu
                             output_.scheme_ = scheme_;
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
-                            output_.cipher_size_ =
+                             output_.cipher_size_ =
                                 input1_.relinearization_required_ ? 3 : 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             output_.scale_ = input1_.scale_;
-                            output_.rescale_required_ =
+                            output_.rescale_required_ = 
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
                                 input1_.relinearization_required_;
@@ -558,13 +558,16 @@ namespace heongpu
                     "non-linear part! Please use relinearization operation!");
             }
 
-            if (input1.rescale_required_ || input2.rescale_required_)
-            {
-                throw std::invalid_argument(
-                    "Ciphertexts can not be multiplied because of the noise! "
-                    "Please use rescale operation to get rid of additional "
-                    "noise!");
-            }
+            /**
+             * @company CipherFlow
+             */
+            // if (input1.rescale_required_ || input2.rescale_required_)
+            // {
+            //     throw std::invalid_argument(
+            //         "Ciphertexts can not be multiplied because of the noise! "
+            //         "Please use rescale operation to get rid of additional "
+            //         "noise!");
+            // }
 
             input_storage_manager(
                 input1,
@@ -580,8 +583,7 @@ namespace heongpu
                                 {
                                     multiply_ckks(input1_, input2_, output_,
                                                   options.stream_);
-                                    output_.rescale_required_ = true;
-
+                                    
                                     output_.scheme_ = scheme_;
                                     output_.ring_size_ = n;
                                     output_.coeff_modulus_count_ = Q_size_;
@@ -589,6 +591,7 @@ namespace heongpu
                                     output_.depth_ = input1_.depth_;
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
+                                    output_.rescale_required_ = false; // @company CipherFlow
                                     output_.relinearization_required_ = true;
                                     output_.ciphertext_generated_ = true;
                                 },
@@ -657,8 +660,9 @@ namespace heongpu
                                 output,
                                 [&](Ciphertext<Scheme::CKKS>& output_)
                                 {
-                                    if (input2_.size() <
-                                        (n * current_decomp_count))
+                                    if ((!input2_.is_ringt_) && (input2_.size() <
+                                        (n * current_decomp_count)) || (input2_.is_ringt_) && (input2_.size() <
+                                        n)) // @company CipherFlow
                                     {
                                         throw std::invalid_argument(
                                             "Invalid Plaintext size!");
@@ -772,7 +776,7 @@ namespace heongpu
         {
             multiply_plain(input1, input2, input1, scale, options);
         }
-
+        
         /**
          * @brief Multiplies a ciphertext by a complex constant and stores the
          * result in the output (v2 version).
@@ -815,8 +819,8 @@ namespace heongpu
                 },
                 options, (&input1 == &output));
         }
-
-        /**
+        
+       /**
          * @brief Scales up a ciphertext by multiplying its scale factor.
          *
          * @param input Input ciphertext to be scaled up.
@@ -883,7 +887,7 @@ namespace heongpu
                             output_.scheme_ = scheme_;
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
-                            output_.cipher_size_ =
+                             output_.cipher_size_ =
                                 input1_.relinearization_required_ ? 3 : 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
@@ -924,7 +928,7 @@ namespace heongpu
                             output_.scheme_ = scheme_;
                             output_.ring_size_ = n;
                             output_.coeff_modulus_count_ = Q_size_;
-                            output_.cipher_size_ =
+                             output_.cipher_size_ =
                                 input1_.relinearization_required_ ? 3 : 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
@@ -990,8 +994,90 @@ namespace heongpu
                     }
 
                     input1_.relinearization_required_ = false;
+                    input1_.cipher_size_ = 2;
+                    input1_.rescale_required_ = input1_.coeff_modulus_count_ - (input1_.depth_ + 1) > 0 ? true: false; // @company CipherFlow
                 },
                 options, true);
+        }
+
+        /**
+         * @brief Performs in-place relinearization of the given ciphertext
+         * using the provided relinearization key.
+         *
+         * @param input1 Ciphertext to be relinearized.
+         * @param output Ciphertext that has been relinearized.
+         * @param relin_key The relinearization key used for the process.
+         * @param options Execution options for the relinearization process
+         * (optional).
+         *
+         * @company CipherFlow
+         */
+        __host__ void
+        relinearize(Ciphertext<Scheme::CKKS>& input1,
+                    Ciphertext<Scheme::CKKS>& output,
+                    Relinkey<Scheme::CKKS>& relin_key,
+                    const ExecutionOptions& options = ExecutionOptions())
+        {
+            if ((!input1.relinearization_required_))
+            {
+                throw std::invalid_argument(
+                    "Ciphertexts can not use relinearization, since no "
+                    "non-linear part!");
+            }
+
+            int current_decomp_count = Q_size_ - input1.depth_;
+
+            if (input1.memory_size() < (3 * n * current_decomp_count))
+            {
+                throw std::invalid_argument("Invalid Ciphertexts size!");
+            }
+
+            input_storage_manager(
+                input1,
+                [&](Ciphertext<Scheme::CKKS>& input1_)
+                {
+                    output_storage_manager(
+                        output,
+                        [&](Ciphertext<Scheme::CKKS>& output_)
+                        {
+                           
+                            switch (static_cast<int>(relin_key.key_type))
+                            {
+                                case 1: // KEYSWITCHING_METHOD_I
+                                    // for (int i = 0; i <
+                                    // relin_key.memory_size();
+                                    //      i++)
+                                    // {
+                                    //     std::cout << "relin_key.data()[" << i
+                                    //               << "] = "
+                                    //               <<
+                                    //               relin_key.host_location_[i]
+                                    //               << std::endl;
+                                    // }
+                                    relinearize_seal_method_inplace_ckks(
+                                        input1_, relin_key, options.stream_);
+                                    break;
+                                case 2: // KEYSWITCHING_METHOD_II
+                                    relinearize_external_product_method2_ckks(
+                                        input1_, output_, relin_key, options.stream_);
+                                    break;
+                                case 3: // KEYSWITCHING_METHOD_III
+                                    relinearize_external_product_method_inplace_ckks(
+                                        input1_, relin_key, options.stream_);
+                                    break;
+                                default:
+                                    throw std::invalid_argument(
+                                        "Invalid Key Switching Type");
+                                    break;
+                            }
+
+                            output_.relinearization_required_ = false;
+                            output_.cipher_size_ = 2;
+                            output_.rescale_required_ = output_.coeff_modulus_count_ - (output_.depth_ + 1) > 0 ? true: false; // @company CipherFlow
+                        },
+                        options);
+                },
+                options, (&input1 == &output));
         }
 
         /**
@@ -1009,7 +1095,8 @@ namespace heongpu
                     Galoiskey<Scheme::CKKS>& galois_key, int shift,
                     const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.rescale_required_ || input1.relinearization_required_)
+            // @company CipherFlow
+            if (input1.relinearization_required_)
             {
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
@@ -1118,7 +1205,8 @@ namespace heongpu
                      Galoiskey<Scheme::CKKS>& galois_key, int galois_elt,
                      const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.rescale_required_ || input1.relinearization_required_)
+            // @company CipherFlow
+            if (input1.relinearization_required_)
             {
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
@@ -1215,7 +1303,8 @@ namespace heongpu
                   Switchkey<Scheme::CKKS>& switch_key,
                   const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.rescale_required_ || input1.relinearization_required_)
+            // @company CipherFlow
+            if (input1.relinearization_required_)
             {
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
@@ -1295,7 +1384,8 @@ namespace heongpu
                   Galoiskey<Scheme::CKKS>& conjugate_key,
                   const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.rescale_required_ || input1.relinearization_required_)
+            // @company CipherFlow
+            if (input1.relinearization_required_)
             {
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
@@ -1383,12 +1473,68 @@ namespace heongpu
             }
 
             input_storage_manager(
-                input1,
+                input1, 
                 [&](Ciphertext<Scheme::CKKS>& input1_)
                 { rescale_inplace_ckks_leveled(input1_, options.stream_); },
                 options, true);
+            
+            if (current_decomp_count -1 <= 1) {
+                input1.rescale_required_ = false;
+            }
+        }
 
-            input1.rescale_required_ = false;
+        /**
+         * @brief Rescales a ciphertext in-place, modifying the input
+         * ciphertext.
+         *
+         * @param input1 Ciphertext to be rescaled.
+         * @company CipherFlow
+         */
+        __host__ void
+        rescale(Ciphertext<Scheme::CKKS>& input1,
+                Ciphertext<Scheme::CKKS>& output, 
+                const ExecutionOptions& options = ExecutionOptions())
+        {
+            if ((!input1.rescale_required_) || input1.relinearization_required_)
+            {
+                throw std::invalid_argument("Ciphertexts can not be rescaled!");
+            }
+
+            int current_decomp_count = Q_size_ - input1.depth_;
+
+            if (input1.memory_size() < (2 * n * current_decomp_count))
+            {
+                throw std::invalid_argument("Invalid Ciphertexts size!");
+            }
+
+            input_storage_manager(
+                input1,
+                [&](Ciphertext<Scheme::CKKS>& input1_)
+                {
+                    output_storage_manager(
+                        output,
+                        [&](Ciphertext<Scheme::CKKS>& output_)
+                        {
+                            rescale_ckks_leveled(input1_, output_,
+                                                  options.stream_);
+
+                            output.scheme_ = scheme_;
+                            output.ring_size_ = n;
+                            output.coeff_modulus_count_ = Q_size_;
+                            output.cipher_size_ = 2;
+                            output.depth_ = input1.depth_ + 1;
+                            output.in_ntt_domain_ = input1.in_ntt_domain_;
+                            output.rescale_required_ = input1.rescale_required_;
+                            if (current_decomp_count -1 <= 1) {
+                                output.rescale_required_ = false;
+                            }
+                            output.relinearization_required_ =
+                                input1.relinearization_required_;
+                            output_.ciphertext_generated_ = true;
+                        },
+                        options);
+                },
+                options, (&input1 == &output));
         }
 
         /**
@@ -1405,7 +1551,7 @@ namespace heongpu
                  Ciphertext<Scheme::CKKS>& output,
                  const ExecutionOptions& options = ExecutionOptions())
         {
-            if (input1.rescale_required_ || input1.relinearization_required_)
+            if (!input1.rescale_required_ || input1.relinearization_required_) // @company CipherFlow
             {
                 throw std::invalid_argument(
                     "Ciphertext's modulus can not be dropped!!");
@@ -1508,7 +1654,7 @@ namespace heongpu
             }
 
             input_storage_manager(
-                input1,
+                input1, 
                 [&](Plaintext<Scheme::CKKS>& input1_)
                 { mod_drop_ckks_plaintext_inplace(input1_, options.stream_); },
                 options, true);
@@ -1532,7 +1678,7 @@ namespace heongpu
             }
 
             input_storage_manager(
-                input1,
+                input1, 
                 [&](Ciphertext<Scheme::CKKS>& input1_)
                 { mod_drop_ckks_leveled_inplace(input1_, options.stream_); },
                 options, true);
@@ -1634,6 +1780,13 @@ namespace heongpu
         __host__ void relinearize_external_product_method2_inplace_ckks(
             Ciphertext<Scheme::CKKS>& input1, Relinkey<Scheme::CKKS>& relin_key,
             const cudaStream_t stream);
+        
+        /**
+         * @company CipherFlow
+         */
+        __host__ void relinearize_external_product_method2_ckks(
+            Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output, Relinkey<Scheme::CKKS>& relin_key,
+            const cudaStream_t stream);
 
         ///////////////////////////////////////////////////
 
@@ -1689,6 +1842,14 @@ namespace heongpu
         __host__ void
         rescale_inplace_ckks_leveled(Ciphertext<Scheme::CKKS>& input1,
                                      const cudaStream_t stream);
+        
+        /**
+         * @company CipherFlow
+         */                             
+        __host__ void
+        rescale_ckks_leveled(Ciphertext<Scheme::CKKS>& input1,
+                             Ciphertext<Scheme::CKKS>& output,
+                             const cudaStream_t stream);                             
 
         ///////////////////////////////////////////////////
 
@@ -1815,7 +1976,7 @@ namespace heongpu
             __host__ Vandermonde(const int poly_degree, const int CtoS_piece,
                                  const int StoC_piece,
                                  const bool less_key_mode);
-
+            
             __host__ Vandermonde(const int poly_degree, const int CtoS_piece,
                                  const int StoC_piece,
                                  const double CtoS_Scaling,
@@ -1843,16 +2004,115 @@ namespace heongpu
             __host__ void generate_pre_comp_V();
 
             __host__ void generate_pre_comp_V_inv();
-
+            
             __host__ void generate_pre_comp_V_v2();
 
             __host__ void generate_pre_comp_V_inv_v2();
 
             __host__ void generate_key_indexs(const bool less_key_mode);
-
+            
             __host__ void generate_key_indexs_v2();
 
             Vandermonde() = delete;
+
+          private:
+            int poly_degree_;
+            int num_slots_;
+            int log_num_slots_;
+
+            int CtoS_piece_;
+            int StoC_piece_;
+
+            double CtoS_Scaling_; 
+            double StoC_Scaling_;
+
+            std::vector<int> E_size_;
+            std::vector<int> E_inv_size_;
+
+            std::vector<int> E_index_;
+            std::vector<int> E_inv_index_;
+
+            std::vector<int> E_splitted_;
+            std::vector<int> E_inv_splitted_;
+
+            std::vector<std::vector<int>> E_splitted_index_;
+            std::vector<std::vector<int>> E_inv_splitted_index_;
+
+            std::vector<std::vector<int>> E_splitted_diag_index_gpu_;
+            std::vector<std::vector<int>> E_inv_splitted_diag_index_gpu_;
+
+            std::vector<std::vector<int>> E_splitted_input_index_gpu_;
+            std::vector<std::vector<int>> E_inv_splitted_input_index_gpu_;
+
+            std::vector<std::vector<int>> E_splitted_output_index_gpu_;
+            std::vector<std::vector<int>> E_inv_splitted_output_index_gpu_;
+
+            std::vector<std::vector<int>> E_splitted_iteration_gpu_;
+            std::vector<std::vector<int>> E_inv_splitted_iteration_gpu_;
+
+            std::vector<std::vector<int>> V_matrixs_index_;
+            std::vector<std::vector<int>> V_inv_matrixs_index_;
+
+            std::vector<heongpu::DeviceVector<Complex64>> V_matrixs_;
+            std::vector<heongpu::DeviceVector<Complex64>> V_inv_matrixs_;
+
+            std::vector<heongpu::DeviceVector<Complex64>> V_matrixs_rotated_;
+            std::vector<heongpu::DeviceVector<Complex64>>
+                V_inv_matrixs_rotated_;
+
+            std::vector<std::vector<std::vector<int>>> diags_matrices_bsgs_;
+            std::vector<std::vector<std::vector<int>>> diags_matrices_inv_bsgs_;
+
+            std::vector<std::vector<std::vector<int>>> real_shift_n2_bsgs_;
+            std::vector<std::vector<std::vector<int>>> real_shift_n2_inv_bsgs_;
+
+            std::vector<std::vector<int>> diags_matrices_bsgs_rot_n1_;  
+            std::vector<std::vector<int>> diags_matrices_bsgs_rot_n2_; 
+
+            std::vector<std::vector<int>> diags_matrices_inv_bsgs_rot_n1_;  
+            std::vector<std::vector<int>> diags_matrices_inv_bsgs_rot_n2_; 
+
+            std::vector<int> key_indexs_;
+        };
+
+        /**
+         * @company CipherFlow
+         */
+        class VandermondeCF
+        {
+            template <Scheme S> friend class HEOperator;
+            template <Scheme S> friend class HEArithmeticOperator;
+            template <Scheme S> friend class HELogicOperator;
+
+          public:
+            __host__ VandermondeCF(const int poly_degree, const int CtoS_piece,
+                                   const int StoC_piece, const double CtoS_Scaling,
+                                   const double StoC_Scaling, const float CtoS_bsgs_ratio,
+                                   const float StoC_bsgs_ratio);
+
+            __host__ ~VandermondeCF() = default;
+
+            __host__ void generate_E_diagonals_index_cf();
+
+            __host__ void generate_E_inv_diagonals_index_cf();
+
+            __host__ void split_E_cf();
+
+            __host__ void split_E_inv_cf();
+
+            __host__ void generate_E_diagonals_cf();
+
+            __host__ void generate_E_inv_diagonals_cf();
+
+            __host__ void generate_V_n_lists_cf(float CtoS_bsgs_ratio, float StoC_bsgs_ratio);
+
+            __host__ void generate_pre_comp_V_cf();
+
+            __host__ void generate_pre_comp_V_inv_cf();
+
+            __host__ void generate_key_indexs_cf();
+
+            VandermondeCF() = delete;
 
           private:
             int poly_degree_;
@@ -1902,9 +2162,6 @@ namespace heongpu
             std::vector<std::vector<std::vector<int>>> diags_matrices_bsgs_;
             std::vector<std::vector<std::vector<int>>> diags_matrices_inv_bsgs_;
 
-            std::vector<std::vector<std::vector<int>>> real_shift_n2_bsgs_;
-            std::vector<std::vector<std::vector<int>>> real_shift_n2_inv_bsgs_;
-
             std::vector<std::vector<int>> diags_matrices_bsgs_rot_n1_;
             std::vector<std::vector<int>> diags_matrices_bsgs_rot_n2_;
 
@@ -1913,6 +2170,7 @@ namespace heongpu
 
             std::vector<int> key_indexs_;
         };
+
 
         class Polynomial
         {
@@ -1927,11 +2185,11 @@ namespace heongpu
             }
 
             // type: POLY_TYPE::MONOMIAL or POLY_TYPE::CHEBYSHEV
-            __host__ Polynomial(int max_deg,
-                                const std::vector<Complex64>& coeffs,
-                                bool lead = false,
-                                PolyType type = PolyType::CHEBYSHEV,
-                                double a = 0.0, double b = 0.0);
+            __host__ Polynomial(int max_deg, 
+                               const std::vector<Complex64>& coeffs,
+                               bool lead = false, 
+                               PolyType type = PolyType::CHEBYSHEV,
+                               double a = 0.0, double b = 0.0);
 
             // Get degree of polynomial (number of coefficients - 1)
             __host__ int degree() const;
@@ -1941,7 +2199,7 @@ namespace heongpu
 
             // Split polynomial coefficients for BSGS recursion
             // Returns pair<poly_q, poly_r>
-            __host__ std::pair<Polynomial, Polynomial>
+           __host__ std::pair<Polynomial, Polynomial>
             split_coeffs(int split) const;
 
             PolyType type_;
@@ -2017,19 +2275,31 @@ namespace heongpu
 
         __host__ std::vector<heongpu::DeviceVector<Data64>>
         encode_V_matrixs(Vandermonde& vandermonde, const double scale,
-                         int rns_count);
+             int rns_count);
 
         __host__ std::vector<heongpu::DeviceVector<Data64>>
         encode_V_inv_matrixs(Vandermonde& vandermonde, const double scale,
                              int rns_count);
-
+        
         __host__ std::vector<heongpu::DeviceVector<Data64>>
         encode_V_matrixs_v2(Vandermonde& vandermonde, int start_level);
 
         __host__ std::vector<heongpu::DeviceVector<Data64>>
         encode_V_inv_matrixs_v2(Vandermonde& vandermonde, int start_level);
+        
+        /**
+         * @company CipherFlow
+         */
+        __host__ std::vector<heongpu::DeviceVector<Data64>>
+        encode_V_matrixs(VandermondeCF& vandermonde, int start_level);
+        
+        /**
+         * @company CipherFlow
+         */
+        __host__ std::vector<heongpu::DeviceVector<Data64>>
+        encode_V_inv_matrixs(VandermondeCF& vandermonde, int start_level);
 
-        __host__ Polynomial generate_eval_mod_poly(const EvalModConfig& config,
+        __host__ Polynomial generate_eval_mod_poly(const EvalModConfig& config, 
                                                    int max_deg);
 
         ///////////////////////////////////////////////////
@@ -2057,8 +2327,8 @@ namespace heongpu
             std::vector<std::vector<std::vector<int>>>& real_shift,
             Galoiskey<Scheme::CKKS>& galois_key,
             const ExecutionOptions& options = ExecutionOptions());
-
-        __host__ std::vector<Ciphertext<Scheme::CKKS>>
+        
+         __host__ std::vector<Ciphertext<Scheme::CKKS>>
         coeff_to_slot(Ciphertext<Scheme::CKKS>& cipher,
                       Galoiskey<Scheme::CKKS>& galois_key,
                       const ExecutionOptions& options = ExecutionOptions());
@@ -2084,7 +2354,7 @@ namespace heongpu
                          Ciphertext<Scheme::CKKS>& cipher1,
                          Galoiskey<Scheme::CKKS>& galois_key,
                          const ExecutionOptions& options = ExecutionOptions());
-
+        
         __host__ Ciphertext<Scheme::CKKS> solo_slot_to_coeff(
             Ciphertext<Scheme::CKKS>& cipher,
             Galoiskey<Scheme::CKKS>& galois_key,
@@ -2100,31 +2370,31 @@ namespace heongpu
         exp_scaled(Ciphertext<Scheme::CKKS>& cipher,
                    Relinkey<Scheme::CKKS>& relin_key,
                    const ExecutionOptions& options = ExecutionOptions());
-
-        __host__ Ciphertext<Scheme::CKKS> exp_taylor_approximation(
+        
+         __host__ Ciphertext<Scheme::CKKS> exp_taylor_approximation(
             Ciphertext<Scheme::CKKS>& cipher, Relinkey<Scheme::CKKS>& relin_key,
             const ExecutionOptions& options = ExecutionOptions());
-
+        
         __host__ Ciphertext<Scheme::CKKS>
         eval_mod(Ciphertext<Scheme::CKKS>& cipher,
                  Relinkey<Scheme::CKKS>& relin_key,
                  const ExecutionOptions& options = ExecutionOptions());
-
+        
         __host__ void
         gen_power(std::unordered_map<int, Ciphertext<Scheme::CKKS>>& cipher,
                   int power, Relinkey<Scheme::CKKS>& relin_key,
                   const ExecutionOptions& options = ExecutionOptions());
 
-        __host__ Ciphertext<Scheme::CKKS>
+         __host__ Ciphertext<Scheme::CKKS>
         evaluate_poly(Ciphertext<Scheme::CKKS>& cipher, double target_scale,
                       const Polynomial& pol, Relinkey<Scheme::CKKS>& relin_key,
                       const ExecutionOptions& options);
-
+        
         __host__ Ciphertext<Scheme::CKKS> evaluate_poly_from_polynomial_basis(
             double target_scale, int target_level, const Polynomial& pol,
             std::unordered_map<int, Ciphertext<Scheme::CKKS>>& powered_ciphers,
             const ExecutionOptions& options = ExecutionOptions());
-
+        
         __host__ Ciphertext<Scheme::CKKS> evaluate_poly_recurse(
             int target_level, double target_scale, const Polynomial& pol,
             int log_split,
@@ -2139,7 +2409,8 @@ namespace heongpu
                                            Galoiskey<Scheme::CKKS>& galois_key,
                                            const cudaStream_t stream)
         {
-            if (input1.rescale_required_ || input1.relinearization_required_)
+            // @company CipherFlow
+            if (input1.relinearization_required_)
             {
                 throw std::invalid_argument("Ciphertext can not be rotated!");
             }
@@ -2242,7 +2513,7 @@ namespace heongpu
         __host__ void generate_bootstrapping_params(
             const double scale, const BootstrappingConfig& config,
             const arithmetic_bootstrapping_type& boot_type);
-
+        
         __host__ void
         generate_bootstrapping_params_v2(const double scale,
                                          const BootstrappingConfigV2& config);
@@ -2274,7 +2545,7 @@ namespace heongpu
             Galoiskey<Scheme::CKKS>& galois_key,
             Relinkey<Scheme::CKKS>& relin_key,
             const ExecutionOptions& options = ExecutionOptions());
-
+        
         /**
          * @brief Performs regular bootstrapping with non-sparse key support
          * (v2).
@@ -2364,7 +2635,7 @@ namespace heongpu
                 [&](Ciphertext<Scheme::CKKS>& input1_)
                 {
                     output_storage_manager(
-                        output,
+                        output, 
                         [&](Ciphertext<Scheme::CKKS>& output_)
                         { one_minus_cipher(input1_, output_, options_inner); },
                         options);

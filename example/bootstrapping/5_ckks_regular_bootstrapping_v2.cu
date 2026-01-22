@@ -9,7 +9,7 @@
 
 int main(int argc, char* argv[])
 {
-    cudaSetDevice(0);
+    cudaSetDevice(0); 
 
     heongpu::HEContext<heongpu::Scheme::CKKS> context(
         heongpu::keyswitching_type::KEYSWITCHING_METHOD_II,
@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
     context.print_parameters();
 
     int h = 192;
-    int ephemeral_secret_weight = 32;
+    int ephemeral_secret_weight = 32;  
 
     double scale = pow(2.0, 40);
 
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
     encryptor.encrypt(C1, P1);
 
     heongpu::EvalModConfig eval_mod_config(20);
-
+   
     heongpu::BootstrappingConfigV2 boot_config(
         heongpu::EncodingMatrixConfig(
             heongpu::LinearTransformType::SLOTS_TO_COEFFS, 12),
@@ -125,7 +125,7 @@ int main(int argc, char* argv[])
     std::cout << "Total galois key needed for CKKS bootstrapping: "
               << key_index.size() << std::endl;
     heongpu::Galoiskey<heongpu::Scheme::CKKS> galois_key(context, key_index);
-    keygen.generate_galois_key(galois_key, secret_key);
+    keygen.generate_galois_key(galois_key, secret_key); 
 
     // Drop all level until one level remain
     for (int i = 0; i < 24; i++)
@@ -134,7 +134,7 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "Level before bootstrapping: " << C1.level() << std::endl;
-    
+
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
@@ -154,6 +154,9 @@ int main(int argc, char* argv[])
     std::cout << "Bootstrapping time: " << milliseconds << " ms ("
               << milliseconds / 1000.0 << " seconds)" << std::endl;
 
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
     heongpu::Plaintext<heongpu::Scheme::CKKS> P_res1(context);
     decryptor.decrypt(P_res1, cipher_boot);
     std::vector<Complex64> decrypted_1;
@@ -169,9 +172,9 @@ int main(int argc, char* argv[])
     for (int j = 0; j < 16; j++)
     {
         std::cout << j << "-> EXPECTED:" << message[j]
-                  << " - ACTUAL:" << decrypted_1[j] << std::endl;
+                << " - ACTUAL:" << decrypted_1[j] << std::endl;
     }
     std::cout << std::endl;
-
+        
     return EXIT_SUCCESS;
 }

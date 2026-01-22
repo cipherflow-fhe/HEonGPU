@@ -41,6 +41,8 @@ namespace heongpu
         d_tilda_ = context.d_tilda;
         r_prime_ = context.r_prime;
 
+        d_leveled_ = context.d_leveled; // @company CipherFlow
+
         B_prime_ = context.B_prime_;
         B_prime_ntt_tables_ = context.B_prime_ntt_tables_;
         B_prime_intt_tables_ = context.B_prime_intt_tables_;
@@ -56,6 +58,8 @@ namespace heongpu
         I_j_ = context.I_j_;
         I_location_ = context.I_location_;
         Sk_pair_ = context.Sk_pair_;
+
+        Sk_pair_leveled_ = context.Sk_pair_leveled; // @company CipherFlow
     }
 
     __host__ void HEKeyGenerator<Scheme::BFV>::generate_secret_key(
@@ -274,19 +278,19 @@ namespace heongpu
                     [&](Relinkey<Scheme::BFV>& rk_)
                     {
                         DeviceVector<Data64> errors_a(
-                            2 * Q_prime_size_ * d_ * n, options.stream_);
+                            2 * Q_prime_size_ * d_leveled_->operator[](0) * n, options.stream_); // @company CipherFlow
                         Data64* error_poly = errors_a.data();
-                        Data64* a_poly = error_poly + (Q_prime_size_ * d_ * n);
+                        Data64* a_poly = error_poly + (Q_prime_size_ * d_leveled_->operator[](0) * n); // @company CipherFlow
 
                         RandomNumberGenerator::instance()
                             .modular_uniform_random_number_generation(
                                 a_poly, modulus_->data(), n_power,
-                                Q_prime_size_, d_, options.stream_);
+                                Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                         RandomNumberGenerator::instance()
                             .modular_gaussian_random_number_generation(
                                 error_std_dev, error_poly, modulus_->data(),
-                                n_power, Q_prime_size_, d_, options.stream_);
+                                n_power, Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                             .n_power = n_power,
@@ -299,7 +303,7 @@ namespace heongpu
 
                         gpuntt::GPU_NTT_Inplace(
                             error_poly, ntt_table_->data(), modulus_->data(),
-                            cfg_ntt, d_ * Q_prime_size_, Q_prime_size_);
+                            cfg_ntt, d_leveled_->operator[](0) * Q_prime_size_, Q_prime_size_); // @company CipherFlow
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                         DeviceVector<Data64> output_memory(rk_.relinkey_size_,
@@ -309,8 +313,8 @@ namespace heongpu
                                                       1),
                                                  256, 0, options.stream_>>>(
                             output_memory.data(), sk.data(), error_poly, a_poly,
-                            modulus_->data(), factor_->data(), Sk_pair_->data(),
-                            n_power, Q_prime_size_, d_, Q_size_, P_size_);
+                            modulus_->data(), factor_->data(), Sk_pair_leveled_->operator[](0).data(),
+                            n_power, Q_prime_size_, d_leveled_->operator[](0), Q_size_, P_size_); // @company CipherFlow
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                         rk_.memory_set(std::move(output_memory));
@@ -385,7 +389,7 @@ namespace heongpu
                             Sk_pair_->data(), n_power, Q_prime_size_, d_,
                             Q_size_, P_size_);
 
-                        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+                         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
                             .n_power = n_power,
                             .ntt_type = gpuntt::INVERSE,
                             .ntt_layout = gpuntt::PerPolynomial,                            
@@ -696,10 +700,10 @@ namespace heongpu
             sk,
             [&](Secretkey<Scheme::BFV>& sk_)
             {
-                DeviceVector<Data64> errors_a(2 * Q_prime_size_ * d_ * n,
-                                              options.stream_);
+                DeviceVector<Data64> errors_a(2 * Q_prime_size_ * d_leveled_->operator[](0) * n,
+                                              options.stream_); // @company CipherFlow
                 Data64* error_poly = errors_a.data();
-                Data64* a_poly = error_poly + (Q_prime_size_ * d_ * n);
+                Data64* a_poly = error_poly + (Q_prime_size_ * d_leveled_->operator[](0) * n); // @company CipherFlow
 
                 if (!gk.customized)
                 {
@@ -709,12 +713,12 @@ namespace heongpu
                         RandomNumberGenerator::instance()
                             .modular_uniform_random_number_generation(
                                 a_poly, modulus_->data(), n_power,
-                                Q_prime_size_, d_, options.stream_);
+                                Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                         RandomNumberGenerator::instance()
                             .modular_gaussian_random_number_generation(
                                 error_std_dev, error_poly, modulus_->data(),
-                                n_power, Q_prime_size_, d_, options.stream_);
+                                n_power, Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                             .n_power = n_power,
@@ -727,7 +731,7 @@ namespace heongpu
 
                         gpuntt::GPU_NTT_Inplace(
                             error_poly, ntt_table_->data(), modulus_->data(),
-                            cfg_ntt, d_ * Q_prime_size_, Q_prime_size_);
+                            cfg_ntt, d_leveled_->operator[](0) * Q_prime_size_, Q_prime_size_); // @company CipherFlow
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                         int inv_galois = modInverse(galois.second, 2 * n);
@@ -740,8 +744,8 @@ namespace heongpu
                                                   256, 0, options.stream_>>>(
                             output_memory.data(), sk.data(), error_poly, a_poly,
                             modulus_->data(), factor_->data(), inv_galois,
-                            Sk_pair_->data(), n_power, Q_prime_size_, d_,
-                            Q_size_, P_size_);
+                            Sk_pair_leveled_->operator[](0).data(), n_power, Q_prime_size_, d_leveled_->operator[](0), // @company CipherFlow
+                            Q_size_, P_size_); 
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                         if (options.storage_ == storage_type::DEVICE)
@@ -766,12 +770,12 @@ namespace heongpu
                     RandomNumberGenerator::instance()
                         .modular_uniform_random_number_generation(
                             a_poly, modulus_->data(), n_power, Q_prime_size_,
-                            d_, options.stream_);
+                            d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                     RandomNumberGenerator::instance()
                         .modular_gaussian_random_number_generation(
                             error_std_dev, error_poly, modulus_->data(),
-                            n_power, Q_prime_size_, d_, options.stream_);
+                            n_power, Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                     gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                         .n_power = n_power,
@@ -783,7 +787,7 @@ namespace heongpu
 
                     gpuntt::GPU_NTT_Inplace(error_poly, ntt_table_->data(),
                                             modulus_->data(), cfg_ntt,
-                                            d_ * Q_prime_size_, Q_prime_size_);
+                                            d_leveled_->operator[](0) * Q_prime_size_, Q_prime_size_); // @company CipherFlow
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                     DeviceVector<Data64> output_memory(gk.galoiskey_size_,
@@ -793,7 +797,7 @@ namespace heongpu
                                               256, 0, options.stream_>>>(
                         output_memory.data(), sk.data(), error_poly, a_poly,
                         modulus_->data(), factor_->data(), gk.galois_elt_zero,
-                        Sk_pair_->data(), n_power, Q_prime_size_, d_, Q_size_,
+                        Sk_pair_leveled_->operator[](0).data(), n_power, Q_prime_size_, d_leveled_->operator[](0), Q_size_, // @company CipherFlow
                         P_size_);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
@@ -819,12 +823,12 @@ namespace heongpu
                         RandomNumberGenerator::instance()
                             .modular_uniform_random_number_generation(
                                 a_poly, modulus_->data(), n_power,
-                                Q_prime_size_, d_, options.stream_);
+                                Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                         RandomNumberGenerator::instance()
                             .modular_gaussian_random_number_generation(
                                 error_std_dev, error_poly, modulus_->data(),
-                                n_power, Q_prime_size_, d_, options.stream_);
+                                n_power, Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                             .n_power = n_power,
@@ -837,7 +841,7 @@ namespace heongpu
 
                         gpuntt::GPU_NTT_Inplace(
                             error_poly, ntt_table_->data(), modulus_->data(),
-                            cfg_ntt, d_ * Q_prime_size_, Q_prime_size_);
+                            cfg_ntt, d_leveled_->operator[](0) * Q_prime_size_, Q_prime_size_); // @company CipherFlow
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                         int inv_galois = modInverse(galois_, 2 * n);
@@ -850,7 +854,7 @@ namespace heongpu
                                                   256, 0, options.stream_>>>(
                             output_memory.data(), sk.data(), error_poly, a_poly,
                             modulus_->data(), factor_->data(), inv_galois,
-                            Sk_pair_->data(), n_power, Q_prime_size_, d_,
+                            Sk_pair_leveled_->operator[](0).data(), n_power, Q_prime_size_, d_leveled_->operator[](0), // @company CipherFlow
                             Q_size_, P_size_);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
@@ -876,12 +880,12 @@ namespace heongpu
                     RandomNumberGenerator::instance()
                         .modular_uniform_random_number_generation(
                             a_poly, modulus_->data(), n_power, Q_prime_size_,
-                            d_, options.stream_);
+                            d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                     RandomNumberGenerator::instance()
                         .modular_gaussian_random_number_generation(
                             error_std_dev, error_poly, modulus_->data(),
-                            n_power, Q_prime_size_, d_, options.stream_);
+                            n_power, Q_prime_size_, d_leveled_->operator[](0), options.stream_); // @company CipherFlow
 
                     gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                         .n_power = n_power,
@@ -893,7 +897,7 @@ namespace heongpu
 
                     gpuntt::GPU_NTT_Inplace(error_poly, ntt_table_->data(),
                                             modulus_->data(), cfg_ntt,
-                                            d_ * Q_prime_size_, Q_prime_size_);
+                                            d_leveled_->operator[](0) * Q_prime_size_, Q_prime_size_); // @company CipherFlow
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
                     DeviceVector<Data64> output_memory(gk.galoiskey_size_,
@@ -903,7 +907,7 @@ namespace heongpu
                                               256, 0, options.stream_>>>(
                         output_memory.data(), sk.data(), error_poly, a_poly,
                         modulus_->data(), factor_->data(), gk.galois_elt_zero,
-                        Sk_pair_->data(), n_power, Q_prime_size_, d_, Q_size_,
+                        Sk_pair_leveled_->operator[](0).data(), n_power, Q_prime_size_, d_leveled_->operator[](0), Q_size_, // @company CipherFlow
                         P_size_);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 

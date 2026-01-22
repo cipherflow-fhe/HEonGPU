@@ -41,8 +41,19 @@ namespace heongpu
 
     __global__ void E_diagonal_generate_kernel(Complex64* output, int n_power);
 
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_generate_kernel_cf(Complex64* output, int n_power);
+
     __global__ void E_diagonal_inverse_generate_kernel(Complex64* output,
                                                        int n_power);
+    
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_inverse_generate_kernel_cf(Complex64* output,
+                                                               int n_power);
 
     __global__ void E_diagonal_inverse_matrix_mult_single_kernel(
         Complex64* input, Complex64* output, bool last, int n_power);
@@ -52,8 +63,26 @@ namespace heongpu
         int* input_index, int* output_index, int iteration_count,
         int R_matrix_counter, int output_index_counter, int mul_index,
         bool first1, bool first2, int n_power);
+    
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_matrix_mult_kernel_cf(
+        Complex64* input, Complex64* output, Complex64* temp, int* diag_index,
+        int* input_index, int* output_index, int iteration_count,
+        int R_matrix_counter, int output_index_counter, int mul_index,
+        bool first, bool last, int n_power);
 
     __global__ void E_diagonal_inverse_matrix_mult_kernel(
+        Complex64* input, Complex64* output, Complex64* temp, int* diag_index,
+        int* input_index, int* output_index, int iteration_count,
+        int R_matrix_counter, int output_index_counter, int mul_index,
+        bool first, bool last, int n_power);
+
+    /**
+     * @company CipherFlow
+     */
+    __global__ void E_diagonal_inverse_matrix_mult_kernel_cf(
         Complex64* input, Complex64* output, Complex64* temp, int* diag_index,
         int* input_index, int* output_index, int iteration_count,
         int R_matrix_counter, int output_index_counter, int mul_index,
@@ -67,7 +96,7 @@ namespace heongpu
 
     // TODO: work it for multiple RNS prime (currently it only works for single
     // prime)
-    __global__ void mod_raise_kernel(Data64* input, Data64* output,
+   __global__ void mod_raise_kernel(Data64* input, Data64* output,
                                      Modulus64* modulus, int n_power);
 
     __global__ void mod_raise_kernel_v2(Data64* input, Data64* output,
