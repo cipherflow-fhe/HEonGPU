@@ -476,7 +476,7 @@ namespace heongpu
                     plain.depth_ = 0;
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = false;
-                    plain.is_ringt_ = false;
+                    plain.is_ringt_ = true;
                     plain.plaintext_generated_ = true;
                 },
                 options);
