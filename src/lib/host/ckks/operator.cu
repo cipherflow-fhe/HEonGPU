@@ -325,7 +325,7 @@ namespace heongpu
             throw std::invalid_argument("Invalid Ciphertexts size!");
         }
 
-        if ((!input2.is_ringt_ && input2.size() < (context_->n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < context_->n)) // @company CipherFlow
+        if ((!input2.is_ringt_ && input2.size() < (context_->n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < (slot_count_ * 2))) // @company CipherFlow
         {
             throw std::invalid_argument("Invalid Plaintext size!");
         }
@@ -338,25 +338,42 @@ namespace heongpu
         DeviceVector<Data64> converted_plaintext;
 
         if (input2.is_ringt_) {
-            converted_plaintext.resize(context_->n * current_decomp_count, stream);
+            int log_slot_n = log_slot_count_ + 1;
+            int slot_n = 1 << log_slot_n;
 
-            // Call ringt_to_pt_kernel
-            ringt_to_pt_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
-                input2.data(), converted_plaintext.data(), context_->modulus_->data(),
-                context_->n_power);
+            // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
+            DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
+            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+                input2.data(), ringt_data.data(), context_->modulus_->data(),
+                log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-            // Apply NTT to converted plaintext
+            // Step 2: NTT in slot ring
             gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
-                .n_power = context_->n_power,
+                .n_power = log_slot_n,
                 .ntt_type = gpuntt::FORWARD,
-                .ntt_layout = gpuntt::PerPolynomial,  
+                .ntt_layout = gpuntt::PerPolynomial,
                 .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(converted_plaintext.data(), context_->ntt_table_->data(),
+            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
                                     context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+
+            // Step 3: Expand to full ring if sparse packing
+            if (gap_ > 1)
+            {
+                converted_plaintext.resize(context_->n * current_decomp_count, stream);
+                sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
+                                            256, 0, stream>>>(
+                    converted_plaintext.data(), ringt_data.data(),
+                    log_slot_count_, context_->n_power, current_decomp_count);
+                HEONGPU_CUDA_CHECK(cudaGetLastError());
+            }
+            else
+            {
+                converted_plaintext = std::move(ringt_data);
+            }
 
             plaintext_data = converted_plaintext.data();
         }
@@ -489,7 +506,7 @@ namespace heongpu
             throw std::invalid_argument("Invalid Ciphertexts size!");
         }
 
-        if ((!input2.is_ringt_ && input2.size() < (context_->n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < context_->n)) // @company CipherFlow
+        if ((!input2.is_ringt_ && input2.size() < (context_->n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < (slot_count_ * 2))) // @company CipherFlow
         {
             throw std::invalid_argument("Invalid Plaintext size!");
         }
@@ -502,25 +519,42 @@ namespace heongpu
         DeviceVector<Data64> converted_plaintext;
 
         if (input2.is_ringt_) {
-            converted_plaintext.resize(context_->n * current_decomp_count, stream);
+            int log_slot_n = log_slot_count_ + 1;
+            int slot_n = 1 << log_slot_n;
 
-            // Call ringt_to_pt_kernel
-            ringt_to_pt_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
-                input2.data(), converted_plaintext.data(), context_->modulus_->data(),
-                context_->n_power);
+            // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
+            DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
+            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+                input2.data(), ringt_data.data(), context_->modulus_->data(),
+                log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-            // Apply NTT to converted plaintext
+            // Step 2: NTT in slot ring
             gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
-                .n_power = context_->n_power,
+                .n_power = log_slot_n,
                 .ntt_type = gpuntt::FORWARD,
-                .ntt_layout = gpuntt::PerPolynomial,  
+                .ntt_layout = gpuntt::PerPolynomial,
                 .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(converted_plaintext.data(), context_->ntt_table_->data(),
+            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
                                     context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+
+            // Step 3: Expand to full ring if sparse packing
+            if (gap_ > 1)
+            {
+                converted_plaintext.resize(context_->n * current_decomp_count, stream);
+                sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
+                                            256, 0, stream>>>(
+                    converted_plaintext.data(), ringt_data.data(),
+                    log_slot_count_, context_->n_power, current_decomp_count);
+                HEONGPU_CUDA_CHECK(cudaGetLastError());
+            }
+            else
+            {
+                converted_plaintext = std::move(ringt_data);
+            }
 
             plaintext_data = converted_plaintext.data();
         }
@@ -927,25 +961,42 @@ namespace heongpu
 
         // If input2 is in ringt format, convert it to pt format
         if (input2.is_ringt_) {
-            converted_plaintext.resize(context_->n * current_decomp_count, stream);
+            int log_slot_n = log_slot_count_ + 1;
+            int slot_n = 1 << log_slot_n;
 
-            // Call ringt_to_pt_kernel
-            ringt_to_pt_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
-                input2.data(), converted_plaintext.data(), context_->modulus_->data(),
-                context_->n_power);
+            // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
+            DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
+            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+                input2.data(), ringt_data.data(), context_->modulus_->data(),
+                log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-            // Apply NTT to converted plaintext
+            // Step 2: NTT in slot ring
             gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
-                .n_power = context_->n_power,
+                .n_power = log_slot_n,
                 .ntt_type = gpuntt::FORWARD,
-                .ntt_layout = gpuntt::PerPolynomial,   
+                .ntt_layout = gpuntt::PerPolynomial,
                 .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(converted_plaintext.data(), context_->ntt_table_->data(),
+            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
                                     context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+
+            // Step 3: Expand to full ring if sparse packing
+            if (gap_ > 1)
+            {
+                converted_plaintext.resize(context_->n * current_decomp_count, stream);
+                sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
+                                            256, 0, stream>>>(
+                    converted_plaintext.data(), ringt_data.data(),
+                    log_slot_count_, context_->n_power, current_decomp_count);
+                HEONGPU_CUDA_CHECK(cudaGetLastError());
+            }
+            else
+            {
+                converted_plaintext = std::move(ringt_data);
+            }
 
             plaintext_data = converted_plaintext.data();
         }
