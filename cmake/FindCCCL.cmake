@@ -1,5 +1,10 @@
 # Locate CCCL when it is installed with the CUDA Toolkit.
 
+if(TARGET CCCL::CCCL)
+    set(CCCL_FOUND TRUE)
+    return()
+endif()
+
 set(_CCCL_HINT_PREFIXES
     ${CCCL_ROOT}
     ${CCCL_DIR}
