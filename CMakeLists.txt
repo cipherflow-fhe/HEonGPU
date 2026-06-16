@@ -111,6 +111,7 @@ set(RNGonGPU_USE_INTERNAL_GPUNTT
     "Force using global GPU-NTT (thirdparty/GPU-NTT) instead of RNGonGPU's internal" FORCE)
 
 add_subdirectory(thirdparty)
+add_subdirectory(primitives/fft)
 add_subdirectory(src)
 
 ############################################################################

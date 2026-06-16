@@ -150,9 +150,41 @@ namespace heongpu
         output[idx] = c_in;
     }
 
+    // @company CipherFlow
+    __global__ void double_to_complex_kernel(double* input, Complex64* output,
+                                             int slot_count) 
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx >= slot_count)
+        {
+            return;
+        }
+
+        double in = input[idx];
+
+        Complex64 c_in(in, 0.0);
+        output[idx] = c_in;
+    }
+
     __global__ void complex_to_double_kernel(Complex64* input, double* output)
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        Complex64 in = input[idx];
+
+        double d_in = in.real();
+        output[idx] = d_in;
+    }
+
+    // @company CipherFlow
+    __global__ void complex_to_double_kernel(Complex64* input, double* output,
+                                             int slot_count) 
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx >= slot_count)
+        {
+            return;
+        }
 
         Complex64 in = input[idx];
 
@@ -169,6 +201,11 @@ namespace heongpu
                                   int n_power)
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x; // slot_count
+        int slot_count = 1 << (n_power - 1); // @company CipherFlow
+        if (idx >= slot_count) // @company CipherFlow
+        {
+            return;
+        }
 
         int order = reverse_order[idx];
         Complex64 partial_message = complex_message[order];
@@ -238,9 +275,14 @@ namespace heongpu
         double two_pow_64, int* reverse_order, int n_power, int gap) // @company CipherFlow
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x; // slot_count
+        int offset = 1 << (n_power - 1);
+        int slot_count = offset / gap; 
+        if (idx >= slot_count) 
+        {
+            return;
+        }
         double inv_scale = double(1.0) / scale;
         double two_pow_64_reg = two_pow_64;
-        int offset = 1 << (n_power - 1); 
 
         Data64 compose_result[50]; // TODO: Define size as global variable
         Data64 big_integer_result[50]; // TODO: Define size as global variable
