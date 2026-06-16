@@ -525,6 +525,11 @@ namespace heongpu
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
         int idy = blockIdx.y; // rns count
+        int ring_size = 1 << n_power; 
+        if (idx >= ring_size) 
+        {
+            return;
+        }
 
         int location_input = idx;
         int location_output = idx + (idy << n_power);

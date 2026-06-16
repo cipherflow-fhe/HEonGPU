@@ -344,7 +344,7 @@ namespace heongpu
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
-            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, 0, stream>>>( // @company CipherFlow
                 input2.data(), ringt_data.data(), context_->modulus_->data(),
                 log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -525,7 +525,7 @@ namespace heongpu
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
-            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, 0, stream>>>( // @company CipherFlow
                 input2.data(), ringt_data.data(), context_->modulus_->data(),
                 log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -967,7 +967,7 @@ namespace heongpu
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
-            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, 0, stream>>>( // @company CipherFlow
                 input2.data(), ringt_data.data(), context_->modulus_->data(),
                 log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());

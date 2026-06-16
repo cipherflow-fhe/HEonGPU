@@ -601,7 +601,7 @@ namespace heongpu
 
         DeviceVector<Data64> output_memory(slot_n * current_decomp_count, stream); 
 
-        ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256,
+        ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, // @company CipherFlow
                              0, stream>>>(
             plain_ringt.data(), output_memory.data(), context_->modulus_->data(),
             log_slot_n);
