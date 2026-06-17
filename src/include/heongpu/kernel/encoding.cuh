@@ -36,7 +36,13 @@ namespace heongpu
 
     __global__ void double_to_complex_kernel(double* input, Complex64* output);
 
+    __global__ void double_to_complex_kernel(double* input, Complex64* output,
+                                             int slot_count); // @company CipherFlow
+
     __global__ void complex_to_double_kernel(Complex64* input, double* output);
+
+    __global__ void complex_to_double_kernel(Complex64* input, double* output,
+                                             int slot_count); // @company CipherFlow
     
     // @company CipherFlow
     __global__ void encode_coeff_kernel_double_to_rns(

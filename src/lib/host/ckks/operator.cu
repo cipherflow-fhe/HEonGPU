@@ -7,6 +7,7 @@
 #include <NTL/RR.h>
 #include <heongpu/host/ckks/operator.cuh>
 #include <heongpu/host/ckks/cosine_approx.cuh>
+#include <heongpu/primitive/fft.cuh>
 
 namespace heongpu
 {
@@ -343,7 +344,7 @@ namespace heongpu
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
-            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, 0, stream>>>( // @company CipherFlow
                 input2.data(), ringt_data.data(), context_->modulus_->data(),
                 log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -524,7 +525,7 @@ namespace heongpu
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
-            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, 0, stream>>>( // @company CipherFlow
                 input2.data(), ringt_data.data(), context_->modulus_->data(),
                 log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -966,7 +967,7 @@ namespace heongpu
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
-            ringt_to_pt_kernel<<<dim3((slot_n >> 8), current_decomp_count, 1), 256, 0, stream>>>(
+            ringt_to_pt_kernel<<<dim3(((slot_n + 255) >> 8), current_decomp_count, 1), 256, 0, stream>>>( // @company CipherFlow
                 input2.data(), ringt_data.data(), context_->modulus_->data(),
                 log_slot_n);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -2881,8 +2882,8 @@ namespace heongpu
         cfg_ifft.mod_inverse = Complex64(fix, 0.0);
         cfg_ifft.stream = 0;
 
-        gpufft::GPU_Special_FFT(input, special_ifft_roots_table_->data(),
-                                cfg_ifft, 1);
+        primitive::special_fft(input, special_ifft_roots_table_->data(), // @company CipherFlow
+                               cfg_ifft, 1);
 
         // @company CipherFlow 
         // Generate bit-reverse table for the requested slot_count.
@@ -2901,9 +2902,9 @@ namespace heongpu
             compact = compact_buf.data();
         }
 
-        encode_kernel_ckks_conversion<<<dim3(((slot_count) >> 8), 1, 1), 256>>>(
+        encode_kernel_ckks_conversion<<<dim3(((slot_count + 255) >> 8), 1, 1), 256>>>(
             compact, input, context_->modulus_->data(), rns_count, two_pow_64_,
-            reverse_order_local.data(), log_sparse_n); // @company CipherFlow 
+            reverse_order_local.data(), log_sparse_n); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         Root64* ntt_table_ptr = (log_slot_count_local == log_slot_count_)
@@ -2952,8 +2953,8 @@ namespace heongpu
         cfg_ifft.mod_inverse = Complex64(fix, 0.0);
         cfg_ifft.stream = stream; // @company CipherFlow
 
-        gpufft::GPU_Special_FFT(message_gpu.data(),
-                                special_ifft_roots_table_->data(), cfg_ifft, 1);
+        primitive::special_fft(message_gpu.data(), // @company CipherFlow
+                               special_ifft_roots_table_->data(), cfg_ifft, 1);
 
         int log_sparse_n = log_slot_count_ + 1; // @company CipherFlow
 
@@ -2967,7 +2968,7 @@ namespace heongpu
             compact = compact_buf.data();
         }
 
-        encode_kernel_ckks_conversion<<<dim3(((slot_count_) >> 8), 1, 1), 256, 0, stream>>>( // @company CipherFlow
+        encode_kernel_ckks_conversion<<<dim3(((slot_count_ + 255) >> 8), 1, 1), 256, 0, stream>>>( // @company CipherFlow
             compact, message_gpu.data(), context_->modulus_->data(), context_->Q_size, two_pow_64_,
             reverse_order_->data(), log_sparse_n); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -7302,6 +7303,10 @@ namespace heongpu
             std::vector<int> index_mul_sorted;
             std::vector<int> diag_index_temp;
             std::vector<int> iteration_temp;
+            if (matrix_count == 1) 
+            {
+                index_mul_sorted = unique_sort(E_splitted_index_[k]);
+            }
             for (int m = 0; m < matrix_count - 1; m++)
             {
                 if (m == 0)
@@ -7467,6 +7472,10 @@ namespace heongpu
             std::vector<int> index_mul_sorted;
             std::vector<int> diag_index_temp;
             std::vector<int> iteration_temp;
+            if (matrix_count == 1) 
+            {
+                index_mul_sorted = unique_sort(E_inv_splitted_index_[k]);
+            }
             for (int m = 0; m < matrix_count - 1; m++)
             {
                 if (m == 0)

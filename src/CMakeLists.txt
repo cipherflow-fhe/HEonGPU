@@ -76,6 +76,30 @@ set_target_properties(heongpu_util PROPERTIES
     CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
 )
 
+set(HEONGPU_PRIMITIVE_SOURCES
+    lib/primitive/fft.cu
+)
+
+add_library(heongpu_primitive OBJECT ${HEONGPU_PRIMITIVE_SOURCES})
+target_compile_features(heongpu_primitive PUBLIC cxx_std_17)
+target_include_directories(heongpu_primitive
+    PUBLIC
+        $<BUILD_INTERFACE:${HEONGPU_INCLUDE_PARENT}>
+        $<INSTALL_INTERFACE:${INCLUDES_INSTALL_DIR}>
+    PRIVATE
+        $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}>
+        $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}/primitive>
+        $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}/util>
+)
+target_link_libraries(heongpu_primitive PUBLIC heongpu_util heongpu_fft)
+set_target_properties(heongpu_primitive PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_RUNTIME_LIBRARY Static
+    CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+)
+
 set(HEONGPU_KERNEL_SOURCES
     lib/kernel/addition.cu
     lib/kernel/bootstrapping.cu
@@ -200,7 +224,7 @@ target_include_directories(heongpu_host_ckks
         $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}/util>
         $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}/kernel>
 )
-target_link_libraries(heongpu_host_ckks PUBLIC heongpu_host_core heongpu_kernel heongpu_util)
+target_link_libraries(heongpu_host_ckks PUBLIC heongpu_host_core heongpu_kernel heongpu_primitive heongpu_util)
 set_target_properties(heongpu_host_ckks PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CUDA_SEPARABLE_COMPILATION ON
@@ -243,6 +267,7 @@ set_target_properties(heongpu_host_tfhe PROPERTIES
 
 add_library(heongpu STATIC
     $<TARGET_OBJECTS:heongpu_util>
+    $<TARGET_OBJECTS:heongpu_primitive>
     $<TARGET_OBJECTS:heongpu_kernel>
     $<TARGET_OBJECTS:heongpu_host_core>
     $<TARGET_OBJECTS:heongpu_host_bfv>
@@ -273,6 +298,7 @@ target_include_directories(heongpu
 )
 
 target_link_libraries(heongpu PUBLIC
+    heongpu_fft
     ntt
     fft
     rngongpu
