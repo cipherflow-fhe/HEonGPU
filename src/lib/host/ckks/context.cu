@@ -4,6 +4,8 @@
 // Developer: Alişah Özcan
 
 #include <heongpu/host/ckks/context.cuh>
+#include <heongpu/primitive/ntt.cuh>
+#include <cstdlib>
 
 namespace heongpu
 {
@@ -352,6 +354,16 @@ namespace heongpu
             n_inverse_ =
                 std::make_shared<DeviceVector<Ninverse64>>(Qprime_n_inverse);
             
+            const char* use_phantom_ntt = std::getenv("HEONGPU_USE_PHANTOM_NTT");
+            if (use_phantom_ntt && use_phantom_ntt[0] == '1')
+            {
+                phantom_ntt_tables_ = primitive::make_phantom_ntt_tables_from_heongpu_roots(
+                        prime_vector_, Qprime_ntt_table, Qprime_intt_table,
+                        Qprime_n_inverse, n_power, 0);
+            }
+            else
+                phantom_ntt_tables_.reset();
+
             // @company CipherFlow begin ---
             if (log_slot_count == n_power - 1)
             {

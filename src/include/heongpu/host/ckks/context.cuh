@@ -16,6 +16,7 @@
 #include <heongpu/util/memorypool.cuh>
 #include <gmp.h>
 #include <heongpu/kernel/contextpool.hpp>
+#include <heongpu/primitive/ntt.cuh>
 
 #include <ostream>
 #include <istream>
@@ -128,6 +129,7 @@ namespace heongpu
         std::shared_ptr<DeviceVector<Root64>> ntt_table_;
         std::shared_ptr<DeviceVector<Root64>> intt_table_;
         std::shared_ptr<DeviceVector<Ninverse64>> n_inverse_;
+        std::shared_ptr<primitive::PhantomNttTables> phantom_ntt_tables_; // @company CipherFlow
 
         std::shared_ptr<DeviceVector<Root64>> ntt_table_slot_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Root64>> ntt_table_dslot_; // @company CipherFlow

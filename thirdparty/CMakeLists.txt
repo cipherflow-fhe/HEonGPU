@@ -33,3 +33,4 @@ add_subdirectory(GPU-FFT)
 add_subdirectory(GPU-NTT)
 add_subdirectory(RNGonGPU)
 
+include(PhantomFHE.cmake)

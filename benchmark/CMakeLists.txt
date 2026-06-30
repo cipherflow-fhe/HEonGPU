@@ -8,6 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${BINARY_LOCATION}/benchmark)
 set(EXECUTABLES
     bfv_benchmark benchmark_bfv.cpp
     ckks_benchmark benchmark_ckks.cpp
+    ckks_ntt_backend_benchmark benchmark_ckks_ntt_backend.cpp
     tfhe_benchmark benchmark_tfhe.cpp
 )
 
