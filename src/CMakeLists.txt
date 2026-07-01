@@ -78,7 +78,6 @@ set_target_properties(heongpu_util PROPERTIES
 
 set(HEONGPU_PRIMITIVE_SOURCES
     lib/primitive/fft.cu
-    lib/primitive/ntt.cu
 )
 
 add_library(heongpu_primitive OBJECT ${HEONGPU_PRIMITIVE_SOURCES})
@@ -92,7 +91,7 @@ target_include_directories(heongpu_primitive
         $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}/primitive>
         $<BUILD_INTERFACE:${HEONGPU_INCLUDE_ROOT}/util>
 )
-target_link_libraries(heongpu_primitive PUBLIC heongpu_util heongpu_fft heongpu_ntt)
+target_link_libraries(heongpu_primitive PUBLIC heongpu_util heongpu_fft)
 set_target_properties(heongpu_primitive PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CUDA_SEPARABLE_COMPILATION ON
@@ -300,7 +299,6 @@ target_include_directories(heongpu
 
 target_link_libraries(heongpu PUBLIC
     heongpu_fft
-    heongpu_ntt
     ntt
     fft
     rngongpu

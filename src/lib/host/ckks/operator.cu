@@ -8,7 +8,6 @@
 #include <heongpu/host/ckks/operator.cuh>
 #include <heongpu/host/ckks/cosine_approx.cuh>
 #include <heongpu/primitive/fft.cuh>
-#include <heongpu/primitive/ntt.cuh>
 
 namespace heongpu
 {
@@ -1067,11 +1066,10 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::ntt_inverse_inplace(
+        gpuntt::GPU_INTT_Inplace(
             input1.data() + (current_decomp_count << (context_->n_power + 1)),
             context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
-            current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+            current_decomp_count, current_decomp_count);
 
         DeviceVector<Data64> temp_relin(
             (context_->n * context_->Q_size * context_->Q_prime_size) +
@@ -1160,9 +1158,9 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_relin, context_->ntt_table_->data(),
+        gpuntt::GPU_NTT_Inplace(temp1_relin, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
-                                2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+                                2 * current_decomp_count, current_decomp_count);
 
         divide_round_lastq_leveled_stage_two_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -1202,11 +1200,10 @@ namespace heongpu
             counter--;
         }
 
-        primitive::ntt_inverse_inplace(
+        gpuntt::GPU_INTT_Inplace(
             input1.data() + (current_decomp_count << (context_->n_power + 1)),
             context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
-            current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+            current_decomp_count, current_decomp_count);
 
         DeviceVector<Data64> temp_relin(
             (context_->n * context_->Q_size * context_->Q_prime_size) +
@@ -1296,9 +1293,9 @@ namespace heongpu
                       context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_relin, context_->ntt_table_->data(),
+        gpuntt::GPU_NTT_Inplace(temp1_relin, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
-                                2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+                                2 * current_decomp_count, current_decomp_count);
 
         addition<<<dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
                    stream>>>(temp1_relin, input1.data(), input1.data(),
@@ -1416,9 +1413,9 @@ namespace heongpu
             first_decomp_count, context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_relin, context_->ntt_table_->data(),
+        gpuntt::GPU_NTT_Inplace(temp1_relin, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
-                                2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+                                2 * current_decomp_count, current_decomp_count);
 
         addition<<<dim3((context_->n >> 8), current_decomp_count, 2), 256, 0, stream>>>(
             temp1_relin, input1.data(), output_memory.data(), context_->modulus_->data(),
@@ -1486,9 +1483,10 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_rescale, context_->ntt_table_->data(),
+        gpuntt::GPU_NTT_Inplace(temp1_rescale, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
-                                2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
+                                2 * (current_decomp_count - 1),
+                                (current_decomp_count - 1));
 
         move_cipher_leveled_kernel<<<dim3((context_->n >> 8),
                                           current_decomp_count - 1, 2),
@@ -1574,9 +1572,9 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        gpuntt::GPU_NTT_Inplace(
             temp1_rescale, context_->ntt_table_->data(), context_->modulus_->data(), cfg_ntt,
-            2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
+            2 * (current_decomp_count - 1), (current_decomp_count - 1));
 
         move_cipher_leveled_kernel<<<
             dim3((context_->n >> 8), current_decomp_count - 1, 2), 256, 0, stream>>>(
@@ -1896,11 +1894,10 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            output_memory.data(), context_->ntt_table_->data(),
+        gpuntt::GPU_NTT_Inplace(output_memory.data(),
+                                context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+                                2 * current_decomp_count, current_decomp_count);
 
         output.memory_set(std::move(output_memory));
 
@@ -2058,11 +2055,10 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            output_memory.data(), context_->ntt_table_->data(),
+        gpuntt::GPU_NTT_Inplace(output_memory.data(),
+                                context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+                                2 * current_decomp_count, current_decomp_count);
 
         output.memory_set(std::move(output_memory));
 
@@ -2201,18 +2197,14 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            temp2_rotation, context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(temp2_rotation, context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * current_decomp_count, current_decomp_count);
 
         // TODO: Merge with previous one
-        primitive::ntt_forward_inplace(
-            temp1_rotation, context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(temp1_rotation, context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                current_decomp_count, current_decomp_count);
 
         divide_round_lastq_leveled_stage_two_switchkey_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -2369,19 +2361,15 @@ namespace heongpu
             first_decomp_count, context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            temp3_rotation, context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(temp3_rotation, context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * current_decomp_count, current_decomp_count);
 
         // TODO: Fused the redundant kernels
         // TODO: Merge with previous one
-        primitive::ntt_forward_inplace(
-            temp1_rotation, context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(temp1_rotation, context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                current_decomp_count, current_decomp_count);
 
         addition_switchkey<<<dim3((context_->n >> 8), current_decomp_count, 2),
                              256, 0, stream>>>(
@@ -2512,11 +2500,10 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            output_memory.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(output_memory.data(),
+                                context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * current_decomp_count, current_decomp_count);
 
         output.memory_set(std::move(output_memory));
     }
@@ -2663,11 +2650,10 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            output_memory.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(output_memory.data(),
+                                context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * current_decomp_count, current_decomp_count);
 
         output.memory_set(std::move(output_memory));
     }
@@ -3914,11 +3900,10 @@ namespace heongpu
 
             // NTT final_ct -> Q_l NTT domain
             {
-                primitive::ntt_forward_inplace(
+                gpuntt::GPU_NTT_Inplace(
                     final_ct.data(), context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
-                    2 * current_decomp_count, current_decomp_count,
-                    context_->phantom_ntt_tables_);
+                    2 * current_decomp_count, current_decomp_count);
             }
 
             // Copy into result ciphertext
@@ -4592,11 +4577,9 @@ namespace heongpu
             context_->modulus_->data(), context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            c_raised.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * context_->Q_size, context_->Q_size,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(c_raised.data(), context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * context_->Q_size, context_->Q_size);
 
         if (swk_sparse_to_dense != nullptr)
         {
@@ -5399,11 +5382,10 @@ namespace heongpu
                     context_->P_size);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                primitive::ntt_forward_inplace(
+                gpuntt::GPU_NTT_Inplace(
                     result.data() + offset, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
-                    2 * current_decomp_count, current_decomp_count,
-                    context_->phantom_ntt_tables_);
+                    2 * current_decomp_count, current_decomp_count);
             }
             else
             {
@@ -5518,11 +5500,10 @@ namespace heongpu
                         context_->Q_size, context_->P_size);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    primitive::ntt_forward_inplace(
+                    gpuntt::GPU_NTT_Inplace(
                         result.data() + offset, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
-                        2 * current_decomp_count, current_decomp_count,
-                        context_->phantom_ntt_tables_);
+                        2 * current_decomp_count, current_decomp_count);
 
                     in_data = result.data() + offset;
                 }
@@ -5862,11 +5843,10 @@ namespace heongpu
                     context_->P_size);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                primitive::ntt_forward_inplace(
+                gpuntt::GPU_NTT_Inplace(
                     result.data() + offset, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
-                    2 * current_decomp_count, current_decomp_count,
-                    context_->phantom_ntt_tables_);
+                    2 * current_decomp_count, current_decomp_count);
             }
             else
             {
@@ -6013,11 +5993,10 @@ namespace heongpu
                         context_->Q_size, context_->P_size);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    primitive::ntt_forward_inplace(
+                    gpuntt::GPU_NTT_Inplace(
                         result.data() + offset, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
-                        2 * current_decomp_count, current_decomp_count,
-                        context_->phantom_ntt_tables_);
+                        2 * current_decomp_count, current_decomp_count);
 
                     in_data = result.data() + offset;
                 }
@@ -8424,11 +8403,9 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            c_raised.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * context_->Q_size, context_->Q_size,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(c_raised.data(), context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * context_->Q_size, context_->Q_size);
         c_raised.encoding_ = encoding::COEFFICIENT;
 
         // Coeff to slot
@@ -8681,11 +8658,9 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            c_raised.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * context_->Q_size, context_->Q_size,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(c_raised.data(), context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * context_->Q_size, context_->Q_size);
         c_raised.encoding_ = encoding::COEFFICIENT;
 
         // Coeff to slot
@@ -8940,11 +8915,9 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            c_raised.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * context_->Q_size, context_->Q_size,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(c_raised.data(), context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * context_->Q_size, context_->Q_size);
         c_raised.encoding_ = encoding::COEFFICIENT;
 
         // Coeff to slot
@@ -9082,11 +9055,9 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
-            c_raised.data(), context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * context_->Q_size, context_->Q_size,
-            context_->phantom_ntt_tables_);
+        gpuntt::GPU_NTT_Inplace(c_raised.data(), context_->ntt_table_->data(),
+                                context_->modulus_->data(), cfg_ntt,
+                                2 * context_->Q_size, context_->Q_size);
         c_raised.encoding_ = encoding::COEFFICIENT;
 
         // Coeff to slot
