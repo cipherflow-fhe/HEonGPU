@@ -359,8 +359,9 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
-                                    context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+            primitive::NTT_inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
+                context_->modulus_->data(), cfg_ntt, current_decomp_count,
+                current_decomp_count, context_->phantom_ntt_tables_slot_);
 
             // Step 3: Expand to full ring if sparse packing
             if (gap_ > 1)
@@ -540,8 +541,10 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
-                                    context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+            primitive::NTT_inplace(
+                ringt_data.data(), context_->ntt_table_slot_->data(),
+                context_->modulus_->data(), cfg_ntt, current_decomp_count,
+                current_decomp_count, context_->phantom_ntt_tables_slot_);
 
             // Step 3: Expand to full ring if sparse packing
             if (gap_ > 1)
@@ -982,8 +985,10 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
-                                    context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
+            primitive::NTT_inplace(
+                ringt_data.data(), context_->ntt_table_slot_->data(),
+                context_->modulus_->data(), cfg_ntt, current_decomp_count,
+                current_decomp_count, context_->phantom_ntt_tables_slot_);
 
             // Step 3: Expand to full ring if sparse packing
             if (gap_ > 1)
@@ -1067,7 +1072,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::ntt_inverse_inplace(
+        primitive::INTT_inplace(
             input1.data() + (current_decomp_count << (context_->n_power + 1)),
             context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
             current_decomp_count, current_decomp_count,
@@ -1160,7 +1165,7 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_relin, context_->ntt_table_->data(),
+        primitive::NTT_inplace(temp1_relin, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
                                 2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
@@ -1202,7 +1207,7 @@ namespace heongpu
             counter--;
         }
 
-        primitive::ntt_inverse_inplace(
+        primitive::INTT_inplace(
             input1.data() + (current_decomp_count << (context_->n_power + 1)),
             context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
             current_decomp_count, current_decomp_count,
@@ -1296,7 +1301,7 @@ namespace heongpu
                       context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_relin, context_->ntt_table_->data(),
+        primitive::NTT_inplace(temp1_relin, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
                                 2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
@@ -1339,10 +1344,10 @@ namespace heongpu
             counter--;
         }
 
-        gpuntt::GPU_INTT_Inplace(input1.data() +
+        primitive::INTT_inplace(input1.data() +
                                     (current_decomp_count << (context_->n_power + 1)),
                                 context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
-                                current_decomp_count, current_decomp_count);
+                                current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
         DeviceVector<Data64> temp_relin(
             (context_->n * context_->Q_size * context_->Q_prime_size) + (2 * context_->n * context_->Q_prime_size), stream);
@@ -1416,7 +1421,7 @@ namespace heongpu
             first_decomp_count, context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_relin, context_->ntt_table_->data(),
+        primitive::NTT_inplace(temp1_relin, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
                                 2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
@@ -1486,7 +1491,7 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(temp1_rescale, context_->ntt_table_->data(),
+        primitive::NTT_inplace(temp1_rescale, context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
                                 2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
 
@@ -1574,7 +1579,7 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             temp1_rescale, context_->ntt_table_->data(), context_->modulus_->data(), cfg_ntt,
             2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
 
@@ -1816,10 +1821,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(input1.data(), temp0_rotation,
-                         context_->intt_table_->data(),
-                         context_->modulus_->data(), cfg_intt,
-                         2 * current_decomp_count, current_decomp_count);
+        primitive::INTT(
+            input1.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         ckks_duplicate_kernel<<<dim3((context_->n >> 8), current_decomp_count,
@@ -1896,7 +1902,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             output_memory.data(), context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -1961,10 +1967,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(input1.data(), temp0_rotation,
-                         context_->intt_table_->data(),
-                         context_->modulus_->data(), cfg_intt,
-                         2 * current_decomp_count, current_decomp_count);
+        primitive::INTT(
+            input1.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = context_->n_power,
@@ -2058,7 +2065,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             output_memory.data(), context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2117,10 +2124,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(input1.data(), temp0_rotation,
-                         context_->intt_table_->data(),
-                         context_->modulus_->data(), cfg_intt,
-                         2 * current_decomp_count, current_decomp_count);
+        primitive::INTT(
+            input1.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         cipher_broadcast_switchkey_leveled_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -2201,14 +2209,14 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
             context_->phantom_ntt_tables_);
 
         // TODO: Merge with previous one
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             temp1_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count, current_decomp_count,
@@ -2269,10 +2277,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(input1.data(), temp0_rotation,
-                         context_->intt_table_->data(),
-                         context_->modulus_->data(), cfg_intt,
-                         2 * current_decomp_count, current_decomp_count);
+        primitive::INTT(
+            input1.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         cipher_broadcast_switchkey_method_II_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -2369,7 +2378,7 @@ namespace heongpu
             first_decomp_count, context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2377,7 +2386,7 @@ namespace heongpu
 
         // TODO: Fused the redundant kernels
         // TODO: Merge with previous one
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             temp1_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count, current_decomp_count,
@@ -2432,10 +2441,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(input1.data(), temp0_rotation,
-                         context_->intt_table_->data(),
-                         context_->modulus_->data(), cfg_intt,
-                         2 * current_decomp_count, current_decomp_count);
+        primitive::INTT(
+            input1.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         ckks_duplicate_kernel<<<dim3((context_->n >> 8), current_decomp_count,
@@ -2512,7 +2522,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             output_memory.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2566,10 +2576,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(input1.data(), temp0_rotation,
-                         context_->intt_table_->data(),
-                         context_->modulus_->data(), cfg_intt,
-                         2 * current_decomp_count, current_decomp_count);
+        primitive::INTT(
+            input1.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = context_->n_power,
@@ -2663,7 +2674,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             output_memory.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2922,8 +2933,12 @@ namespace heongpu
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         Root64* ntt_table_ptr = (log_slot_count_local == log_slot_count_)
-                                    ? context_->ntt_table_slot_->data()
-                                    : context_->ntt_table_dslot_->data(); // @company CipherFlow 
+                                   ? context_->ntt_table_slot_->data()
+                                   : context_->ntt_table_dslot_->data(); // @company CipherFlow 
+                                   
+        const auto& phantom_table = (log_slot_count_local == log_slot_count_)
+                ? context_->phantom_ntt_tables_slot_
+                : context_->phantom_ntt_tables_dslot_;
 
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = log_sparse_n, // @company CipherFlow 
@@ -2933,8 +2948,9 @@ namespace heongpu
             .zero_padding = false,
             .stream = 0};
 
-        gpuntt::GPU_NTT_Inplace(compact, ntt_table_ptr, // @company CipherFlow 
-                                context_->modulus_->data(), cfg_ntt, rns_count, rns_count);
+        primitive::NTT_inplace(
+            compact, ntt_table_ptr, context_->modulus_->data(), cfg_ntt,
+            rns_count, rns_count, phantom_table);
         // @company CipherFlow 
         if (gap > 1)
         {
@@ -2995,8 +3011,10 @@ namespace heongpu
             .zero_padding = false,
             .stream = stream}; // @company CipherFlow
 
-        gpuntt::GPU_NTT_Inplace(compact, context_->ntt_table_slot_->data(), // @company CipherFlow
-                                context_->modulus_->data(), cfg_ntt, context_->Q_size, context_->Q_size);
+        primitive::NTT_inplace(
+            compact, context_->ntt_table_slot_->data(), context_->modulus_->data(),
+            cfg_ntt, context_->Q_size, context_->Q_size,
+            context_->phantom_ntt_tables_slot_);
         // @company CipherFlow
         if (gap_ > 1)
         {
@@ -3546,10 +3564,11 @@ namespace heongpu
             // temp0: INTT of ciphertext (c0_coeff || c1_coeff) in Q_l coeff
             DeviceVector<Data64> temp0(2 * n * Q_size, stream);
             {
-                gpuntt::GPU_INTT(
+                primitive::INTT(
                     result.data(), temp0.data(), context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt,
-                    2 * current_decomp_count, current_decomp_count);
+                    2 * current_decomp_count, current_decomp_count,
+                    context_->phantom_ntt_tables_);
             }
 
             // temp3: decomposed c1 in PQ_l NTT domain
@@ -3914,7 +3933,7 @@ namespace heongpu
 
             // NTT final_ct -> Q_l NTT domain
             {
-                primitive::ntt_forward_inplace(
+                primitive::NTT_inplace(
                     final_ct.data(), context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     2 * current_decomp_count, current_decomp_count,
@@ -4568,10 +4587,10 @@ namespace heongpu
             cipher_after_ks,
             [&](Ciphertext<Scheme::CKKS>& cipher_temp)
             {
-                gpuntt::GPU_INTT(cipher_after_ks.data(),
-                                 cipher_intt_poly.data(),
-                                 context_->intt_table_->data(),
-                                 context_->modulus_->data(), cfg_intt, 2, 1);
+                primitive::INTT(
+                    cipher_after_ks.data(), cipher_intt_poly.data(),
+                    context_->intt_table_->data(), context_->modulus_->data(),
+                    cfg_intt, 2, 1, context_->phantom_ntt_tables_);
             },
             options, false);
 
@@ -4592,7 +4611,7 @@ namespace heongpu
             context_->modulus_->data(), context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -5314,10 +5333,11 @@ namespace heongpu
                     .mod_inverse = context_->n_inverse_->data(),
                     .stream = stream};
 
-                gpuntt::GPU_INTT(
+                primitive::INTT(
                     first_cipher.data(), temp0_rotation,
                     context_->intt_table_->data(), context_->modulus_->data(),
-                    cfg_intt, 2 * current_decomp_count, current_decomp_count);
+                    cfg_intt, 2 * current_decomp_count, current_decomp_count,
+                    context_->phantom_ntt_tables_);
 
                 // TODO: make it efficient
                 ckks_duplicate_kernel<<<dim3((context_->n >> 8),
@@ -5399,7 +5419,7 @@ namespace heongpu
                     context_->P_size);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                primitive::ntt_forward_inplace(
+                primitive::NTT_inplace(
                     result.data() + offset, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     2 * current_decomp_count, current_decomp_count,
@@ -5432,10 +5452,11 @@ namespace heongpu
                         .mod_inverse = context_->n_inverse_->data(),
                         .stream = stream};
 
-                    gpuntt::GPU_INTT(
+                    primitive::INTT(
                         in_data, temp0_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
-                        2 * current_decomp_count, current_decomp_count);
+                        2 * current_decomp_count, current_decomp_count,
+                        context_->phantom_ntt_tables_);
 
                     // TODO: make it efficient
                     ckks_duplicate_kernel<<<dim3((context_->n >> 8),
@@ -5518,7 +5539,7 @@ namespace heongpu
                         context_->Q_size, context_->P_size);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    primitive::ntt_forward_inplace(
+                    primitive::NTT_inplace(
                         result.data() + offset, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         2 * current_decomp_count, current_decomp_count,
@@ -5569,10 +5590,11 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        gpuntt::GPU_INTT(first_cipher.data(), temp0_rotation,
-                        context_->intt_table_->data(),
-    context_->modulus_->data(), cfg_intt, 2 * current_decomp_count,
-    current_decomp_count);
+        primitive::INTT(
+            first_cipher.data(), temp0_rotation, context_->intt_table_->data(),
+            context_->modulus_->data(), cfg_intt,
+            2 * current_decomp_count, current_decomp_count,
+            context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         ckks_duplicate_kernel<<<dim3((context_->n >> 8), current_decomp_count,
@@ -5748,10 +5770,11 @@ namespace heongpu
                     .mod_inverse = context_->n_inverse_->data(),
                     .stream = stream};
 
-                gpuntt::GPU_INTT(
+                primitive::INTT(
                     first_cipher.data(), temp0_rotation,
                     context_->intt_table_->data(), context_->modulus_->data(),
-                    cfg_intt, 2 * current_decomp_count, current_decomp_count);
+                    cfg_intt, 2 * current_decomp_count, current_decomp_count,
+                    context_->phantom_ntt_tables_);
 
                 gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                     .n_power = context_->n_power,
@@ -5862,7 +5885,7 @@ namespace heongpu
                     context_->P_size);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                primitive::ntt_forward_inplace(
+                primitive::NTT_inplace(
                     result.data() + offset, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     2 * current_decomp_count, current_decomp_count,
@@ -5895,10 +5918,11 @@ namespace heongpu
                         .mod_inverse = context_->n_inverse_->data(),
                         .stream = stream};
 
-                    gpuntt::GPU_INTT(
+                    primitive::INTT(
                         in_data, temp0_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
-                        2 * current_decomp_count, current_decomp_count);
+                        2 * current_decomp_count, current_decomp_count,
+                        context_->phantom_ntt_tables_);
 
                     gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
                         .n_power = context_->n_power,
@@ -6013,7 +6037,7 @@ namespace heongpu
                         context_->Q_size, context_->P_size);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    primitive::ntt_forward_inplace(
+                    primitive::NTT_inplace(
                         result.data() + offset, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         2 * current_decomp_count, current_decomp_count,
@@ -8410,9 +8434,10 @@ namespace heongpu
             input1,
             [&](Ciphertext<Scheme::CKKS>& input1_)
             {
-                gpuntt::GPU_INTT(input1.data(), input_intt_poly.data(),
-                                 context_->intt_table_->data(),
-                                 context_->modulus_->data(), cfg_intt, 2, 1);
+                primitive::INTT(
+                    input1.data(), input_intt_poly.data(),
+                    context_->intt_table_->data(), context_->modulus_->data(),
+                    cfg_intt, 2, 1, context_->phantom_ntt_tables_);
             },
             options, false);
 
@@ -8424,7 +8449,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -8667,9 +8692,10 @@ namespace heongpu
             StoC_results,
             [&](Ciphertext<Scheme::CKKS>& StoC_results_)
             {
-                gpuntt::GPU_INTT(StoC_results.data(), input_intt_poly.data(),
-                                 context_->intt_table_->data(),
-                                 context_->modulus_->data(), cfg_intt, 2, 1);
+                primitive::INTT(
+                    StoC_results.data(), input_intt_poly.data(),
+                    context_->intt_table_->data(), context_->modulus_->data(),
+                    cfg_intt, 2, 1, context_->phantom_ntt_tables_);
             },
             options, false);
 
@@ -8681,7 +8707,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -8926,9 +8952,10 @@ namespace heongpu
             StoC_results,
             [&](Ciphertext<Scheme::CKKS>& StoC_results_)
             {
-                gpuntt::GPU_INTT(StoC_results.data(), input_intt_poly.data(),
-                                 context_->intt_table_->data(),
-                                 context_->modulus_->data(), cfg_intt, 2, 1);
+                primitive::INTT(
+                    StoC_results.data(), input_intt_poly.data(),
+                    context_->intt_table_->data(), context_->modulus_->data(),
+                    cfg_intt, 2, 1, context_->phantom_ntt_tables_);
             },
             options, false);
 
@@ -8940,7 +8967,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -9068,9 +9095,10 @@ namespace heongpu
             StoC_results,
             [&](Ciphertext<Scheme::CKKS>& StoC_results_)
             {
-                gpuntt::GPU_INTT(StoC_results.data(), input_intt_poly.data(),
-                                 context_->intt_table_->data(),
-                                 context_->modulus_->data(), cfg_intt, 2, 1);
+                primitive::INTT(
+                    StoC_results.data(), input_intt_poly.data(),
+                    context_->intt_table_->data(), context_->modulus_->data(),
+                    cfg_intt, 2, 1, context_->phantom_ntt_tables_);
             },
             options, false);
 
@@ -9082,7 +9110,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::ntt_forward_inplace(
+        primitive::NTT_inplace(
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,

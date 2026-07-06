@@ -25,9 +25,10 @@ namespace primitive
         const std::vector<Root64>& inverse_roots,
         const std::vector<Ninverse64>& n_inverse,
         int n_power,
-        cudaStream_t stream = 0);
+        cudaStream_t stream = 0,
+        bool forward_only = false);
 
-    void ntt_forward_inplace(
+    void NTT_inplace(
         Data64* data,
         Root64* gpuntt_roots,
         Modulus64* moduli,
@@ -36,8 +37,18 @@ namespace primitive
         int mod_count,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
 
-    void ntt_inverse_inplace(
+    void INTT_inplace(
         Data64* data,
+        Root64* gpuntt_roots,
+        Modulus64* moduli,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void INTT(
+        Data64* input,
+        Data64* output,
         Root64* gpuntt_roots,
         Modulus64* moduli,
         gpuntt::ntt_rns_configuration<Data64> cfg,

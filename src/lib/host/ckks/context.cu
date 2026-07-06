@@ -355,11 +355,12 @@ namespace heongpu
                 std::make_shared<DeviceVector<Ninverse64>>(Qprime_n_inverse);
             
             const char* use_phantom_ntt = std::getenv("HEONGPU_USE_PHANTOM_NTT");
-            if (use_phantom_ntt && use_phantom_ntt[0] == '1')
+            const bool phantom_ntt_enabled = use_phantom_ntt && use_phantom_ntt[0] == '1';
+            if (phantom_ntt_enabled)
             {
                 phantom_ntt_tables_ = primitive::make_phantom_ntt_tables_from_heongpu_roots(
                         prime_vector_, Qprime_ntt_table, Qprime_intt_table,
-                        Qprime_n_inverse, n_power, 0);
+                        Qprime_n_inverse, n_power, cudaStreamLegacy, false);
             }
             else
                 phantom_ntt_tables_.reset();
@@ -370,6 +371,8 @@ namespace heongpu
                 // Full packing: slot_count = n/2, all three tables are the same.
                 ntt_table_slot_  = ntt_table_;
                 ntt_table_dslot_ = ntt_table_;
+                phantom_ntt_tables_slot_ = phantom_ntt_tables_;
+                phantom_ntt_tables_dslot_ = phantom_ntt_tables_;
             }
             else
             {
@@ -381,6 +384,14 @@ namespace heongpu
                     generate_ntt_table(base_q_psi_sparse, prime_vector_, log_sparse_n);
                 ntt_table_slot_ =
                     std::make_shared<DeviceVector<Root64>>(Qprime_sparse_ntt_table);
+                
+                if (phantom_ntt_enabled)
+                {
+                    phantom_ntt_tables_slot_ = primitive::make_phantom_ntt_tables_from_heongpu_roots(
+                            prime_vector_, Qprime_sparse_ntt_table,
+                            std::vector<Root64>{}, std::vector<Ninverse64>{},
+                            log_sparse_n, cudaStreamLegacy, true);
+                }
 
                 int log_sparse_dn = log_slot_count + 2;
                 int sparse_dn = 1 << log_sparse_dn;
@@ -390,6 +401,19 @@ namespace heongpu
                     generate_ntt_table(base_q_psi_sparse_d, prime_vector_, log_sparse_dn);
                 ntt_table_dslot_ =
                     std::make_shared<DeviceVector<Root64>>(Qprime_sparse_d_ntt_table);
+                if (phantom_ntt_enabled)
+                {
+                    phantom_ntt_tables_dslot_ = primitive::make_phantom_ntt_tables_from_heongpu_roots(
+                            prime_vector_, Qprime_sparse_d_ntt_table,
+                            std::vector<Root64>{}, std::vector<Ninverse64>{},
+                            log_sparse_dn, cudaStreamLegacy, true);
+                }
+            }
+            
+            if (!phantom_ntt_enabled)
+            {
+                phantom_ntt_tables_slot_.reset();
+                phantom_ntt_tables_dslot_.reset();
             }
             // @company CipherFlow end ---
 

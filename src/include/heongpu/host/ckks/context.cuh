@@ -133,6 +133,8 @@ namespace heongpu
 
         std::shared_ptr<DeviceVector<Root64>> ntt_table_slot_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Root64>> ntt_table_dslot_; // @company CipherFlow
+        std::shared_ptr<primitive::PhantomNttTables> phantom_ntt_tables_slot_; // @company CipherFlow
+        std::shared_ptr<primitive::PhantomNttTables> phantom_ntt_tables_dslot_; // @company CipherFlow
 
         std::shared_ptr<DeviceVector<Data64>> last_q_modinv_;
         std::shared_ptr<DeviceVector<Data64>> half_p_;

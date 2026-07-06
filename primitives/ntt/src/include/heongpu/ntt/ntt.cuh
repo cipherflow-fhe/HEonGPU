@@ -26,23 +26,48 @@ namespace ntt
         const std::vector<Root64>& inverse_roots,
         const std::vector<Ninverse64>& n_inverse,
         int n_power,
-        cudaStream_t stream = 0);
+        cudaStream_t stream = 0,
+        bool forward_only = false);
 
-    bool can_use_phantom_ntt(
-        const std::shared_ptr<PhantomNttTables>& phantom_tables,
-        const gpuntt::ntt_rns_configuration<Data64>& cfg,
-        int batch_size,
-        int mod_count);
-
-    void forward_phantom_ntt_inplace(
+    void phantom_ntt_inplace(
         Data64* data,
         gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size,
         int mod_count,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
 
-    void inverse_phantom_ntt_inplace(
+    void phantom_ntt_inplace_batched(
         Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt_inplace(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt_inplace_batched(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt(
+        const Data64* input,
+        Data64* output,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt_batched(
+        const Data64* input,
+        Data64* output,
         gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size,
         int mod_count,
