@@ -27,7 +27,8 @@ namespace primitive
         int n_power,
         cudaStream_t stream = 0,
         bool forward_only = false);
-
+    
+    /////////////////////////////////// Forward NTT ////////////////////////////////
     void NTT_inplace(
         Data64* data,
         Root64* gpuntt_roots,
@@ -37,6 +38,17 @@ namespace primitive
         int mod_count,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
 
+    void NTT_modulus_ordered_inplace(
+        Data64* data,
+        Root64* gpuntt_roots,
+        Modulus64* moduli,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        int* order,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    /////////////////////////////////// Inverse NTT ////////////////////////////////
     void INTT_inplace(
         Data64* data,
         Root64* gpuntt_roots,
@@ -56,6 +68,26 @@ namespace primitive
         int mod_count,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
 
+    void INTT_modulus_ordered_inplace(
+        Data64* data,
+        Root64* gpuntt_roots,
+        Modulus64* moduli,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        int* order,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void INTT_poly_ordered_inplace(
+        Data64* data,
+        Root64* gpuntt_roots,
+        Modulus64* moduli,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        int* order,
+        int start_mod_idx,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
 } // namespace primitive
 } // namespace heongpu
 

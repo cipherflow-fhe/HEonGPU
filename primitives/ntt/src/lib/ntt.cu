@@ -36,6 +36,13 @@ namespace
 	    using phantom::util::per_block_pad;
 	    using phantom::util::per_thread_sample_size;
 
+    enum class NTTMode
+    {
+        Inplace,
+        ModulusOrdered,
+        PolyOrdered
+    };
+
     std::vector<std::uint64_t> make_shoup_table(
         const std::vector<std::uint64_t>& roots, std::uint64_t modulus)
     {
@@ -47,12 +54,63 @@ namespace
         return out;
     }
 
+    template <NTTMode Mode, bool Phase2>
+    __device__ void ntt_table_access(
+        std::size_t logical_row_idx, std::size_t mod_count,
+        std::size_t start_mod_idx, const int* order,
+        std::size_t& data_row_idx, std::size_t& table_mod_idx)
+    {
+        const std::size_t local_row_idx = logical_row_idx % mod_count;
+        const std::size_t data_row_base = logical_row_idx - local_row_idx;
+        std::size_t local_mod_idx = local_row_idx;
+
+        if constexpr (Phase2)
+        {
+            local_mod_idx = mod_count - 1 - local_row_idx;
+        }
+
+        data_row_idx = data_row_base + local_mod_idx;
+        if constexpr (Mode == NTTMode::ModulusOrdered)
+        {
+            table_mod_idx = static_cast<std::size_t>(order[local_mod_idx]);
+        }
+        else
+        {
+            table_mod_idx = local_mod_idx + start_mod_idx;
+        }
+    }
+
+    template <NTTMode Mode>
+    __device__ void intt_table_access(
+        std::size_t logical_row_idx, std::size_t mod_count,
+        std::size_t start_mod_idx, const int* order,
+        std::size_t& data_row_idx, std::size_t& table_mod_idx)
+    {
+        const std::size_t local_mod_idx = logical_row_idx % mod_count;
+        if constexpr (Mode == NTTMode::Inplace)
+        {
+            data_row_idx = logical_row_idx;
+            table_mod_idx = local_mod_idx + start_mod_idx;
+        }
+        else if constexpr (Mode == NTTMode::ModulusOrdered)
+        {
+            data_row_idx = logical_row_idx;
+            table_mod_idx = static_cast<std::size_t>(order[local_mod_idx]);
+        }
+        else
+        {
+            data_row_idx = static_cast<std::size_t>(order[logical_row_idx]);
+            table_mod_idx = local_mod_idx + start_mod_idx;
+        }
+    }
+
+    template <NTTMode Mode>
     __global__ void batched_inplace_fnwt_radix8_phase1(
         std::uint64_t* inout, const std::uint64_t* twiddles,
         const std::uint64_t* twiddles_shoup, const DModulus* modulus,
         std::size_t coeff_mod_size, std::size_t start_mod_idx,
-        std::size_t poly_count, std::size_t n, std::size_t n1,
-        std::size_t pad)
+        std::size_t poly_count, const int* order, std::size_t n,
+        std::size_t n1, std::size_t pad)
     {
         extern __shared__ std::uint64_t buffer[];
 
@@ -67,16 +125,17 @@ namespace
              tid += blockDim.x * gridDim.x)
         {
             std::size_t row_idx = tid / (n / 8);
-            std::size_t local_mod_idx = row_idx % coeff_mod_size; // shared modulus/table row
-            std::size_t data_row_idx = row_idx; // physical batched HEonGPU data row
-            
-            std::size_t twr_idx = local_mod_idx + start_mod_idx;
+            std::size_t data_row_idx = 0;
+            std::size_t table_mod_idx = 0;
+            ntt_table_access<Mode, false>(
+                row_idx, coeff_mod_size, start_mod_idx, order, data_row_idx,
+                table_mod_idx);
             std::size_t n_idx = tid % (n / 8);
 
             std::uint64_t* data_ptr = inout + data_row_idx * n;
-            const std::uint64_t* psi = twiddles + twr_idx * n;
-            const std::uint64_t* psi_shoup = twiddles_shoup + twr_idx * n;
-            std::uint64_t modulus_value = modulus[twr_idx].value();
+            const std::uint64_t* psi = twiddles + table_mod_idx * n;
+            const std::uint64_t* psi_shoup = twiddles_shoup + table_mod_idx * n;
+            std::uint64_t modulus_value = modulus[table_mod_idx].value();
             std::size_t n_init = t / 4 / group * pad_idx + pad_tid + pad * (n_idx / (group * pad));
 
             for (std::size_t j = 0; j < 8; j++){
@@ -134,11 +193,13 @@ namespace
         }
     }
 
-	    __global__ void batched_inplace_fnwt_radix8_phase2(
-	        std::uint64_t* inout, const std::uint64_t* twiddles,
-	        const std::uint64_t* twiddles_shoup, const DModulus* modulus,
-	        std::size_t coeff_mod_size, std::size_t start_mod_idx,
-        std::size_t poly_count, std::size_t n, std::size_t n1,
+    template <NTTMode Mode>
+    __global__ void batched_inplace_fnwt_radix8_phase2(
+        std::uint64_t* inout, const std::uint64_t* twiddles,
+        const std::uint64_t* twiddles_shoup, const DModulus* modulus,
+        std::size_t coeff_mod_size, std::size_t start_mod_idx,
+        std::size_t poly_count, const int* order, std::size_t n,
+        std::size_t n1,
         std::size_t n2)
     {
         extern __shared__ std::uint64_t buffer[];
@@ -153,20 +214,19 @@ namespace
              tid += blockDim.x * gridDim.x)
         {
             std::size_t row_idx = tid / (n / 8);
-            std::size_t local_row_idx = row_idx % coeff_mod_size;
-            std::size_t data_row_base = row_idx - local_row_idx;
-            std::size_t local_mod_idx = coeff_mod_size - 1 - local_row_idx; 
-            std::size_t data_row_idx = data_row_base + local_mod_idx;
-            
-            std::size_t twr_idx = local_mod_idx + start_mod_idx;
+            std::size_t data_row_idx = 0;
+            std::size_t table_mod_idx = 0;
+            ntt_table_access<Mode, true>(
+                row_idx, coeff_mod_size, start_mod_idx, order, data_row_idx,
+                table_mod_idx);
             std::size_t n_idx = tid % (n / 8);
             std::size_t m_idx = n_idx / (t / 4);
             std::size_t t_idx = n_idx % (t / 4);
 
             std::uint64_t* data_ptr = inout + data_row_idx * n;
-            std::uint64_t modulus_value = modulus[twr_idx].value();
-            const std::uint64_t* psi = twiddles + n * twr_idx;
-            const std::uint64_t* psi_shoup = twiddles_shoup + n * twr_idx;
+            std::uint64_t modulus_value = modulus[table_mod_idx].value();
+            const std::uint64_t* psi = twiddles + n * table_mod_idx;
+            const std::uint64_t* psi_shoup = twiddles_shoup + n * table_mod_idx;
             std::size_t n_init = 2 * m_idx * t + t_idx;
             for (std::size_t j = 0; j < 8; j++){
                 samples[j] = *(data_ptr + n_init + t / 4 * j);
@@ -224,15 +284,17 @@ namespace
             for (std::size_t j = 0; j < 8; j++){
                 *(data_ptr + n_init + t / 4 * j) = samples[j];
             }
-	        }
-	    }
+        }
+    }
 
-	    __global__ void batched_inplace_inwt_radix8_phase1(
-	        std::uint64_t* inout, const std::uint64_t* itwiddles,
-	        const std::uint64_t* itwiddles_shoup, const DModulus* modulus,
-	        std::size_t coeff_mod_size, std::size_t start_mod_idx,
-	        std::size_t poly_count, std::size_t n, std::size_t n1,
-	        std::size_t n2)
+    template <NTTMode Mode>
+    __global__ void batched_inplace_inwt_radix8_phase1(
+        const std::uint64_t* input, std::uint64_t* output,
+        const std::uint64_t* itwiddles,
+        const std::uint64_t* itwiddles_shoup, const DModulus* modulus,
+        std::size_t coeff_mod_size, std::size_t start_mod_idx,
+        std::size_t poly_count, const int* order, std::size_t n,
+        std::size_t n1, std::size_t n2)
 	    {
 	        extern __shared__ std::uint64_t buffer[];
 
@@ -246,21 +308,24 @@ namespace
 	            std::size_t t = n / 2 / n1;
 
 	            std::size_t row_idx = i / (n / 8);
-	            std::size_t local_mod_idx = row_idx % coeff_mod_size; // shared modulus/table row
-	            std::size_t data_row_idx = row_idx; // physical batched HEonGPU data row
-	            std::size_t twr_idx = local_mod_idx + start_mod_idx;
+	            std::size_t data_row_idx = 0;
+	            std::size_t twr_idx = 0;
+                intt_table_access<Mode>(
+                    row_idx, coeff_mod_size, start_mod_idx, order,
+                    data_row_idx, twr_idx);
 	            std::size_t n_idx = i % (n / 8);
 	            std::size_t m_idx = n_idx / (t / 4);
 	            std::size_t t_idx = n_idx % (t / 4);
 
-	            std::uint64_t* data_ptr = inout + data_row_idx * n;
+	            const std::uint64_t* input_ptr = input + data_row_idx * n;
+	            std::uint64_t* output_ptr = output + data_row_idx * n;
 	            const std::uint64_t* psi = itwiddles + n * twr_idx;
 	            const std::uint64_t* psi_shoup = itwiddles_shoup + n * twr_idx;
 	            std::uint64_t modulus_value = modulus[twr_idx].value();
 	            std::size_t n_init = 2 * m_idx * t + t_idx;
 
 	            for (std::size_t j = 0; j < 8; j++){
-	                buffer[set * n2 + t_idx + t / 4 * j] = *(data_ptr + n_init + t / 4 * j);
+		                buffer[set * n2 + t_idx + t / 4 * j] = *(input_ptr + n_init + t / 4 * j);
 	            }
 	            __syncthreads();
 
@@ -306,11 +371,12 @@ namespace
 	                intt4(samples + 1, psi, psi_shoup, tw_idx, modulus_value);
 	            }
 	            for (std::size_t j = 0; j < 8; j++){
-	                *(data_ptr + n_init + t / 4 * j) = samples[j];
+		                *(output_ptr + n_init + t / 4 * j) = samples[j];
 	            }
 	        }
 	    }
 
+	    template <NTTMode Mode>
 	    __global__ void batched_inplace_inwt_radix8_phase2(
 	        std::uint64_t* inout, const std::uint64_t* itwiddles,
 	        const std::uint64_t* itwiddles_shoup,
@@ -318,7 +384,8 @@ namespace
 	        const std::uint64_t* inv_degree_modulo_shoup,
 	        const DModulus* modulus, std::size_t coeff_mod_size,
 	        std::size_t start_mod_idx, std::size_t poly_count,
-	        std::size_t n, std::size_t n1, std::size_t pad)
+	        const int* order, std::size_t n, std::size_t n1,
+	        std::size_t pad)
 	    {
 	        extern __shared__ std::uint64_t buffer[];
 
@@ -333,9 +400,11 @@ namespace
 	             i += blockDim.x * gridDim.x)
 	        {
 	            std::size_t row_idx = i / (n / 8);
-	            std::size_t local_mod_idx = row_idx % coeff_mod_size; // shared modulus/table row
-	            std::size_t data_row_idx = row_idx; // physical batched HEonGPU data row
-	            std::size_t twr_idx = local_mod_idx + start_mod_idx;
+	            std::size_t data_row_idx = 0;
+	            std::size_t twr_idx = 0;
+                intt_table_access<Mode>(
+                    row_idx, coeff_mod_size, start_mod_idx, order,
+                    data_row_idx, twr_idx);
 	            std::size_t n_idx = i % (n / 8);
 
 	            std::uint64_t* data_ptr = inout + data_row_idx * n;
@@ -402,7 +471,70 @@ namespace
 	        }
 	    }
 
-	} // namespace
+    template <NTTMode Mode>
+    void launch_ntt_radix8_batched(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, int start_mod_idx, const int* order,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        const int poly_count = batch_size / mod_count;
+        const DNTTTable& ntt_tables = tables->table;
+        const std::size_t n = ntt_tables.n();
+        std::size_t phase1_sample_size = SAMPLE_SIZE(n);
+        const std::size_t phase2_sample_size = n / phase1_sample_size;
+        constexpr std::size_t per_block_memory =
+            blockDimNTT.x * per_thread_sample_size * sizeof(std::uint64_t);
+
+        batched_inplace_fnwt_radix8_phase1<Mode><<<
+            gridDimNTT, (phase1_sample_size / 8) * per_block_pad,
+            (phase1_sample_size + per_block_pad + 1) * per_block_pad *
+                sizeof(std::uint64_t),
+            cfg.stream>>>(
+            data, ntt_tables.twiddle(), ntt_tables.twiddle_shoup(),
+            ntt_tables.modulus(), mod_count, start_mod_idx, poly_count,
+            order, n, phase1_sample_size, per_block_pad);
+
+        batched_inplace_fnwt_radix8_phase2<Mode><<<
+            gridDimNTT, blockDimNTT, per_block_memory, cfg.stream>>>(
+            data, ntt_tables.twiddle(), ntt_tables.twiddle_shoup(),
+            ntt_tables.modulus(), mod_count, start_mod_idx, poly_count,
+            order, n, phase1_sample_size, phase2_sample_size);
+    }
+
+    template <NTTMode Mode>
+    void launch_intt_radix8_batched(
+        const Data64* input, Data64* output,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, int start_mod_idx, const int* order,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        const int poly_count = batch_size / mod_count;
+        const DNTTTable& ntt_tables = tables->table;
+        const std::size_t n = ntt_tables.n();
+        std::size_t phase2_sample_size = SAMPLE_SIZE(n);
+        const std::size_t phase1_sample_size = n / phase2_sample_size;
+        constexpr std::size_t per_block_memory =
+            blockDimNTT.x * per_thread_sample_size * sizeof(std::uint64_t);
+
+        batched_inplace_inwt_radix8_phase1<Mode><<<
+            gridDimNTT, blockDimNTT, per_block_memory, cfg.stream>>>(
+            input, output, ntt_tables.itwiddle(),
+            ntt_tables.itwiddle_shoup(), ntt_tables.modulus(), mod_count,
+            start_mod_idx, poly_count, order, n, phase1_sample_size,
+            phase2_sample_size);
+
+        batched_inplace_inwt_radix8_phase2<Mode><<<
+            gridDimNTT, (phase1_sample_size / 8) * per_block_pad,
+            (phase1_sample_size + per_block_pad + 1) * per_block_pad *
+                sizeof(std::uint64_t),
+            cfg.stream>>>(
+            output, ntt_tables.itwiddle(), ntt_tables.itwiddle_shoup(),
+            ntt_tables.n_inv_mod_q(), ntt_tables.n_inv_mod_q_shoup(),
+            ntt_tables.modulus(), mod_count, start_mod_idx, poly_count,
+            order, n, phase1_sample_size, per_block_pad);
+    }
+
+		} // namespace
 
     std::shared_ptr<PhantomNttTables> make_phantom_ntt_tables_from_heongpu_roots(
         const std::vector<Modulus64>& moduli,
@@ -426,7 +558,7 @@ namespace
                                            forward_roots.begin() + offset + n);
             auto fwd_shoup = make_shoup_table(fwd, moduli[i].value);
 
-            if (forward_only)
+            if (forward_only)   //generate forward table only for sparse NTT.
             {
                 cudaMemcpyAsync(out->table.modulus() + i, &dmod,
                                 sizeof(DModulus), cudaMemcpyHostToDevice,
@@ -458,66 +590,6 @@ namespace
         return out;
     }
 
-    void phantom_ntt_inplace_batched(
-        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size, int mod_count,
-        const std::shared_ptr<PhantomNttTables>& tables)
-    {
-        const int poly_count = batch_size / mod_count;
-        const DNTTTable& ntt_tables = tables->table;
-        std::size_t poly_degree = ntt_tables.n();
-        std::size_t phase1_sample_size = SAMPLE_SIZE(poly_degree);
-        const std::size_t phase2_sample_size = poly_degree / phase1_sample_size;
-        constexpr std::size_t per_block_memory =
-            blockDimNTT.x * per_thread_sample_size * sizeof(std::uint64_t);
-
-        batched_inplace_fnwt_radix8_phase1<<<
-            gridDimNTT, (phase1_sample_size / 8) * per_block_pad,
-            (phase1_sample_size + per_block_pad + 1) * per_block_pad *
-                sizeof(std::uint64_t),
-            cfg.stream>>>(
-            data, ntt_tables.twiddle(), ntt_tables.twiddle_shoup(),
-            ntt_tables.modulus(), mod_count, 0, poly_count, poly_degree,
-            phase1_sample_size, per_block_pad);
-
-        batched_inplace_fnwt_radix8_phase2<<<
-            gridDimNTT, blockDimNTT, per_block_memory, cfg.stream>>>(
-            data, ntt_tables.twiddle(), ntt_tables.twiddle_shoup(),
-            ntt_tables.modulus(), mod_count, 0, poly_count, poly_degree,
-            phase1_sample_size, phase2_sample_size);
-    }
-
-    void phantom_intt_inplace_batched(
-        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size, int mod_count,
-        const std::shared_ptr<PhantomNttTables>& tables)
-    {
-        const int poly_count = batch_size / mod_count;
-
-        const DNTTTable& ntt_tables = tables->table;
-        std::size_t poly_degree = ntt_tables.n();
-        std::size_t phase2_sample_size = SAMPLE_SIZE(poly_degree);
-        const std::size_t phase1_sample_size = poly_degree / phase2_sample_size;
-        constexpr std::size_t per_block_memory =
-            blockDimNTT.x * per_thread_sample_size * sizeof(std::uint64_t);
-
-        batched_inplace_inwt_radix8_phase1<<<
-            gridDimNTT, blockDimNTT, per_block_memory, cfg.stream>>>(
-            data, ntt_tables.itwiddle(), ntt_tables.itwiddle_shoup(),
-            ntt_tables.modulus(), mod_count, 0, poly_count, poly_degree,
-            phase1_sample_size, phase2_sample_size);
-
-        batched_inplace_inwt_radix8_phase2<<<
-            gridDimNTT, (phase1_sample_size / 8) * per_block_pad,
-            (phase1_sample_size + per_block_pad + 1) * per_block_pad *
-                sizeof(std::uint64_t),
-            cfg.stream>>>(
-            data, ntt_tables.itwiddle(), ntt_tables.itwiddle_shoup(),
-            ntt_tables.n_inv_mod_q(), ntt_tables.n_inv_mod_q_shoup(),
-            ntt_tables.modulus(), mod_count, 0, poly_count, poly_degree,
-            phase1_sample_size, per_block_pad);
-    }
-
     void phantom_ntt_inplace(
         Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size, int mod_count,
@@ -525,13 +597,45 @@ namespace
     {
         const int poly_count = batch_size / mod_count;
         const std::size_t n = tables->table.n();
-
         for (int poly = 0; poly < poly_count; ++poly)
         {
             nwt_2d_radix8_forward_inplace(
                 data + std::size_t(poly) * mod_count * n, tables->table,
                 mod_count, 0, cfg.stream);
         }
+    }
+
+    void phantom_ntt_inplace_batched(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        launch_ntt_radix8_batched<NTTMode::Inplace>(
+            data, cfg, batch_size, mod_count, 0, nullptr, tables);
+    }
+
+    void phantom_ntt_modulus_ordered_inplace(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, const int* order,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        const int poly_count = batch_size / mod_count;
+        const std::size_t n = tables->table.n();
+        for (int poly = 0; poly < poly_count; ++poly)
+        {
+            phantom_ntt_modulus_ordered_inplace_batched(
+                data + (static_cast<std::size_t>(poly) * mod_count * n), cfg,
+                mod_count, mod_count, order, tables);
+        }
+    }
+
+    void phantom_ntt_modulus_ordered_inplace_batched(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, const int* order,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        launch_ntt_radix8_batched<NTTMode::ModulusOrdered>(
+            data, cfg, batch_size, mod_count, 0, order, tables);
     }
 
     void phantom_intt_inplace(
@@ -550,6 +654,15 @@ namespace
         }
     }
 
+     void phantom_intt_inplace_batched(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        launch_intt_radix8_batched<NTTMode::Inplace>(
+            data, data, cfg, batch_size, mod_count, 0, nullptr, tables);
+    }
+
     void phantom_intt(
         const Data64* input, Data64* output,
         gpuntt::ntt_rns_configuration<Data64> cfg,
@@ -558,7 +671,6 @@ namespace
     {
         const int poly_count = batch_size / mod_count;
         const std::size_t n = tables->table.n();
-
         for (int poly = 0; poly < poly_count; ++poly)
         {
             nwt_2d_radix8_backward(
@@ -574,15 +686,43 @@ namespace
         int batch_size, int mod_count,
         const std::shared_ptr<PhantomNttTables>& tables)
     {
+        launch_intt_radix8_batched<NTTMode::Inplace>(
+            input, output, cfg, batch_size, mod_count, 0, nullptr, tables);
+    }
+
+    void phantom_intt_modulus_ordered_inplace(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, const int* order,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        const int poly_count = batch_size / mod_count;
         const std::size_t n = tables->table.n();
-        if (input != output)
+
+        for (int poly = 0; poly < poly_count; ++poly)
         {
-            cudaMemcpyAsync(output, input,
-                            std::size_t(batch_size) * n * sizeof(Data64),
-                            cudaMemcpyDeviceToDevice, cfg.stream);
+            phantom_intt_modulus_ordered_inplace_batched(
+                data + (static_cast<std::size_t>(poly) * mod_count * n), cfg,
+                mod_count, mod_count, order, tables);
         }
-        phantom_intt_inplace_batched(output, cfg, batch_size, mod_count,
-                                     tables);
+    }
+
+    void phantom_intt_modulus_ordered_inplace_batched(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, const int* order,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        launch_intt_radix8_batched<NTTMode::ModulusOrdered>(
+            data, data, cfg, batch_size, mod_count, 0, order, tables);
+    }
+
+    void phantom_intt_poly_ordered_inplace_batched(
+        Data64* data, gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size, int mod_count, const int* order, int start_mod_idx,
+        const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        launch_intt_radix8_batched<NTTMode::PolyOrdered>(
+            data, data, cfg, batch_size, mod_count, start_mod_idx, order,
+            tables);
     }
 
 } // namespace ntt

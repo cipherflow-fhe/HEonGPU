@@ -1110,11 +1110,11 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp1_relin, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
-            new_prime_locations + location);
+            new_prime_locations + location, context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         int iteration_count_1 = current_decomp_count / 4;
@@ -1150,12 +1150,13 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data() + first_decomp_count,
             .stream = stream};
 
-        gpuntt::GPU_NTT_Poly_Ordered_Inplace(
+        primitive::INTT_poly_ordered_inplace(
             temp2_relin,
             context_->intt_table_->data() +
                 (first_decomp_count << context_->n_power),
             context_->modulus_->data() + first_decomp_count, cfg_intt2, 2, 1,
-            new_input_locations + (input1.depth_ * 2));
+            new_input_locations + (input1.depth_ * 2), first_decomp_count,
+            context_->phantom_ntt_tables_);
 
         divide_round_lastq_leveled_stage_one_kernel<<<
             dim3((context_->n >> 8), 2, 1), 256, 0, stream>>>(
@@ -1250,12 +1251,13 @@ namespace heongpu
             .zero_padding = false,
             .stream = stream};
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp1_relin, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
                 current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         int iteration_count_1 =
@@ -1286,10 +1288,11 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp2_relin, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         divide_round_lastq_extended_leveled_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -1378,10 +1381,11 @@ namespace heongpu
             .zero_padding = false,
             .stream = stream};
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp1_relin, context_->ntt_table_->data(), context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         int iteration_count_1 = context_->d_leveled->operator[](input1.depth_) / 4;
@@ -1408,10 +1412,10 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp2_relin, context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
             2 * current_rns_mod_count, current_rns_mod_count,
-            new_prime_locations + location);
+            new_prime_locations + location, context_->phantom_ntt_tables_);
 
         divide_round_lastq_extended_leveled_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0, stream>>>(
@@ -1474,13 +1478,14 @@ namespace heongpu
         Data64* temp2_rescale =
             temp1_rescale + (2 * context_->n * context_->Q_prime_size);
 
-        gpuntt::GPU_NTT_Poly_Ordered_Inplace(
+        primitive::INTT_poly_ordered_inplace(
             input1.data(),
             context_->intt_table_->data() +
                 ((current_decomp_count - 1) << context_->n_power),
             context_->modulus_->data() + (current_decomp_count - 1), cfg_intt,
             2, 1,
-            new_input_locations + ((input1.depth_ + context_->P_size) * 2));
+            new_input_locations + ((input1.depth_ + context_->P_size) * 2),
+            current_decomp_count - 1, context_->phantom_ntt_tables_);
 
         divide_round_lastq_leveled_stage_one_kernel<<<
             dim3((context_->n >> 8), 2, 1), 256, 0, stream>>>(
@@ -1564,11 +1569,12 @@ namespace heongpu
         Data64* temp1_rescale = temp_rescale.data();
         Data64* temp2_rescale = temp1_rescale + (2 * context_->n * context_->Q_prime_size);
 
-        gpuntt::GPU_NTT_Poly_Ordered_Inplace(
+        primitive::INTT_poly_ordered_inplace(
             input1.data(),
             context_->intt_table_->data() + ((current_decomp_count - 1) << context_->n_power),
             context_->modulus_->data() + (current_decomp_count - 1), cfg_intt, 2, 1,
-            new_input_locations + ((input1.depth_ + context_->P_size) * 2));
+            new_input_locations + ((input1.depth_ + context_->P_size) * 2),
+            current_decomp_count - 1, context_->phantom_ntt_tables_);
 
         divide_round_lastq_leveled_stage_one_kernel<<<dim3((context_->n >> 8), 2, 1), 256,
                                                       0, stream>>>(
@@ -1851,11 +1857,11 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
-            new_prime_locations + location);
+            new_prime_locations + location, context_->phantom_ntt_tables_);
 
         // MultSum
         // TODO: make it efficient
@@ -1885,10 +1891,11 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp3_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // ModDown + Permute
         divide_round_lastq_permute_ckks_kernel<<<dim3((context_->n >> 8),
@@ -2010,12 +2017,13 @@ namespace heongpu
             context_->prime_location_leveled->data() + location);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
                 current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // MultSum
         // TODO: make it efficient
@@ -2048,10 +2056,11 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp4_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // ModDown + Permute
         divide_round_lastq_permute_ckks_kernel<<<dim3((context_->n >> 8),
@@ -2153,11 +2162,11 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
-            new_prime_locations + location);
+            new_prime_locations + location, context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         int iteration_count_1 = current_decomp_count / 4;
@@ -2194,12 +2203,13 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data() + first_decomp_count,
             .stream = stream};
 
-        gpuntt::GPU_NTT_Poly_Ordered_Inplace(
+        primitive::INTT_poly_ordered_inplace(
             temp3_rotation,
             context_->intt_table_->data() +
                 (first_decomp_count << context_->n_power),
             context_->modulus_->data() + first_decomp_count, cfg_intt2, 2, 1,
-            new_input_locations + (input1.depth_ * 2));
+            new_input_locations + (input1.depth_ * 2), first_decomp_count,
+            context_->phantom_ntt_tables_);
 
         divide_round_lastq_leveled_stage_one_kernel<<<
             dim3((context_->n >> 8), 2, 1), 256, 0, stream>>>(
@@ -2326,12 +2336,13 @@ namespace heongpu
             context_->prime_location_leveled->data() + location);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
                 current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // TODO: make it efficient
         int iteration_count_1 =
@@ -2363,10 +2374,11 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp4_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         divide_round_lastq_extended_leveled_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -2471,11 +2483,11 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
-            new_prime_locations + location);
+            new_prime_locations + location, context_->phantom_ntt_tables_);
 
         // MultSum
         // TODO: make it efficient
@@ -2505,10 +2517,11 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp3_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // ModDown + Permute
         divide_round_lastq_permute_ckks_kernel<<<dim3((context_->n >> 8),
@@ -2619,12 +2632,13 @@ namespace heongpu
             context_->prime_location_leveled->data() + location);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::NTT_modulus_ordered_inplace(
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
                 current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // MultSum
         // TODO: make it efficient
@@ -2657,10 +2671,11 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+        primitive::INTT_modulus_ordered_inplace(
             temp4_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-            current_rns_mod_count, new_prime_locations + location);
+            current_rns_mod_count, new_prime_locations + location,
+            context_->phantom_ntt_tables_);
 
         // ModDown + Permute
         divide_round_lastq_permute_ckks_kernel<<<dim3((context_->n >> 8),
@@ -3600,11 +3615,12 @@ namespace heongpu
             }
 
             {
-                gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                primitive::NTT_modulus_ordered_inplace(
                     temp3.data(), context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     d_level * current_rns_mod_count, current_rns_mod_count,
-                    new_prime_locations + location);
+                    new_prime_locations + location,
+                    context_->phantom_ntt_tables_);
             }
 
             int iteration_count_1 = d_level / 4;
@@ -3789,11 +3805,12 @@ namespace heongpu
                 // First INTT u1 from PQ_l NTT -> PQ_l coeff
                 // u1 is at u_pql + pql_count * n
                 {
-                    gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                    primitive::INTT_modulus_ordered_inplace(
                         u_pql.data() + (pql_count * n),
                         context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt, pql_count,
-                        pql_count, new_prime_locations + location);
+                        pql_count, new_prime_locations + location,
+                        context_->phantom_ntt_tables_);
                 }
 
                 // ModDown u1: PQ_l coeff -> Q_l coeff
@@ -3837,11 +3854,12 @@ namespace heongpu
                 }
 
                 {
-                    gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                    primitive::NTT_modulus_ordered_inplace(
                         temp3_gs.data(), context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         d_level * current_rns_mod_count, current_rns_mod_count,
-                        new_prime_locations + location);
+                        new_prime_locations + location,
+                        context_->phantom_ntt_tables_);
                 }
 
                 // MultSum: decomposed u1 × giant-step key -> (gs0, gs1) in PQ_l
@@ -3911,10 +3929,11 @@ namespace heongpu
             // ============================================================
             // INTT accumulator from PQ_l NTT -> PQ_l coeff
             {
-                gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                primitive::INTT_modulus_ordered_inplace(
                     gs_accum.data(), context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt, 2 * pql_count,
-                    pql_count, new_prime_locations + location);
+                    pql_count, new_prime_locations + location,
+                    context_->phantom_ntt_tables_);
             }
 
             // ModDown both components: PQ_l coeff -> Q_l coeff
@@ -5363,11 +5382,12 @@ namespace heongpu
                     location += counter;
                     counter--;
                 }
-                gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                primitive::NTT_modulus_ordered_inplace(
                     temp2_rotation, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     current_decomp_count * current_rns_mod_count,
-                    current_rns_mod_count, new_prime_locations + location);
+                    current_rns_mod_count, new_prime_locations + location,
+                    context_->phantom_ntt_tables_);
 
                 // MultSum
                 // TODO: make it efficient
@@ -5400,11 +5420,12 @@ namespace heongpu
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
                 }
 
-                gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                primitive::INTT_modulus_ordered_inplace(
                     temp3_rotation, context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt,
                     2 * current_rns_mod_count, current_rns_mod_count,
-                    new_prime_locations + location);
+                    new_prime_locations + location,
+                    context_->phantom_ntt_tables_);
 
                 // ModDown + Permute
                 divide_round_lastq_permute_ckks_kernel<<<
@@ -5483,11 +5504,12 @@ namespace heongpu
                         location += counter;
                         counter--;
                     }
-                    gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                    primitive::NTT_modulus_ordered_inplace(
                         temp2_rotation, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         current_decomp_count * current_rns_mod_count,
-                        current_rns_mod_count, new_prime_locations + location);
+                        current_rns_mod_count, new_prime_locations + location,
+                        context_->phantom_ntt_tables_);
 
                     // MultSum
                     // TODO: make it efficient
@@ -5520,11 +5542,12 @@ namespace heongpu
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
 
-                    gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                    primitive::INTT_modulus_ordered_inplace(
                         temp3_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
                         2 * current_rns_mod_count, current_rns_mod_count,
-                        new_prime_locations + location);
+                        new_prime_locations + location,
+                        context_->phantom_ntt_tables_);
 
                     // ModDown + Permute
                     divide_round_lastq_permute_ckks_kernel<<<
@@ -5824,12 +5847,13 @@ namespace heongpu
                     context_->prime_location_leveled->data() + location);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                primitive::NTT_modulus_ordered_inplace(
                     temp3_rotation, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     context_->d_leveled->operator[](first_cipher.depth_) *
                         current_rns_mod_count,
-                    current_rns_mod_count, new_prime_locations + location);
+                    current_rns_mod_count, new_prime_locations + location,
+                    context_->phantom_ntt_tables_);
 
                 // MultSum
                 // TODO: make it efficient
@@ -5866,11 +5890,12 @@ namespace heongpu
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
                 }
 
-                gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                primitive::INTT_modulus_ordered_inplace(
                     temp4_rotation, context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt,
                     2 * current_rns_mod_count, current_rns_mod_count,
-                    new_prime_locations + location);
+                    new_prime_locations + location,
+                    context_->phantom_ntt_tables_);
 
                 // ModDown + Permute
                 divide_round_lastq_permute_ckks_kernel<<<
@@ -5974,12 +5999,13 @@ namespace heongpu
                         context_->prime_location_leveled->data() + location);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                    primitive::NTT_modulus_ordered_inplace(
                         temp3_rotation, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         context_->d_leveled->operator[](first_cipher.depth_) *
                             current_rns_mod_count,
-                        current_rns_mod_count, new_prime_locations + location);
+                        current_rns_mod_count, new_prime_locations + location,
+                        context_->phantom_ntt_tables_);
 
                     // MultSum
                     // TODO: make it efficient
@@ -6018,11 +6044,12 @@ namespace heongpu
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
 
-                    gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                    primitive::INTT_modulus_ordered_inplace(
                         temp4_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
                         2 * current_rns_mod_count, current_rns_mod_count,
-                        new_prime_locations + location);
+                        new_prime_locations + location,
+                        context_->phantom_ntt_tables_);
 
                     // ModDown + Permute
                     divide_round_lastq_permute_ckks_kernel<<<
@@ -6175,10 +6202,11 @@ namespace heongpu
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
             }
 
-            gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+            primitive::INTT_modulus_ordered_inplace(
                 temp4_rotation, context_->intt_table_->data(),
     context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
-    current_rns_mod_count, new_prime_locations + location);
+    current_rns_mod_count, new_prime_locations + location,
+    context_->phantom_ntt_tables_);
 
             // ModDown + Permute
             divide_round_lastq_permute_ckks_kernel<<<

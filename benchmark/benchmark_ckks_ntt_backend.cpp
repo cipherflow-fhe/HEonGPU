@@ -59,7 +59,10 @@ enum class NttKernelMode
 {
     ForwardInplace,
     InverseInplace,
-    InverseOutOfPlace
+    InverseOutOfPlace,
+    ModulusOrderedForward,
+    ModulusOrderedInverse,
+    PolyOrderedInverse
 };
 
 std::vector<ParameterSet> make_parameters()
@@ -380,6 +383,55 @@ BenchmarkResult run_bootstrapping_case(const ParameterSet& parameter,
     return {parameter.label, parameter.poly_modulus_degree, timing};
 }
 
+template <typename GpunttFunc, typename PhantomFunc, typename PhantomNoBatchFunc>
+void measure_kernel_paths(cudaStream_t stream, cudaEvent_t start_time,
+                          cudaEvent_t stop_time, int repeat_count,
+                          std::size_t order_seed, GpunttFunc&& run_gpuntt,
+                          PhantomFunc&& run_phantom,
+                          PhantomNoBatchFunc&& run_phantom_no_batch,
+                          float& gpuntt_ms, float& phantom_ms,
+                          float& phantom_no_batch_ms)
+{
+    auto measure_gpuntt = [&]() {
+        return average_kernel_time(
+            stream, start_time, stop_time, kKernelWarmupCount, 
+            repeat_count, run_gpuntt);
+    };
+    auto measure_phantom = [&]() {
+        return average_kernel_time(
+            stream, start_time, stop_time, kKernelWarmupCount, 
+            repeat_count, run_phantom);
+    };
+    auto measure_phantom_no_batch = [&]() {
+        return average_kernel_time(
+            stream, start_time, stop_time, kKernelWarmupCount, 
+            repeat_count, run_phantom_no_batch);
+    };
+
+    enum { GpunttPath, PhantomPath, PhantomNoBatchPath };
+    const int path_orders[] = {
+        GpunttPath, PhantomPath, PhantomNoBatchPath,
+        PhantomPath, PhantomNoBatchPath, GpunttPath,
+        PhantomNoBatchPath, GpunttPath, PhantomPath};
+    const int* path_order = &path_orders[(order_seed % 3) * 3];
+
+    for (int i = 0; i < 3; ++i)
+    {
+        switch (path_order[i])
+        {
+            case GpunttPath:
+                gpuntt_ms = measure_gpuntt();
+                break;
+            case PhantomPath:
+                phantom_ms = measure_phantom();
+                break;
+            default:
+                phantom_no_batch_ms = measure_phantom_no_batch();
+                break;
+        }
+    }
+}
+
 std::vector<NttKernelResult> run_ntt_kernel_comparison(
     const std::vector<ParameterSet>& parameters, int repeat_count,
     NttKernelMode mode)
@@ -389,52 +441,6 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
     cudaEventCreate(&start_time);
     cudaEventCreate(&stop_time);
 
-    auto measure_paths = [&](cudaStream_t stream, auto&& run_gpuntt,
-                             auto&& run_phantom,
-                             auto&& run_phantom_no_batch,
-                             std::size_t order_seed,
-                             float& gpuntt_ms, float& phantom_ms,
-                             float& phantom_no_batch_ms) {
-        auto measure_gpuntt = [&]() {
-            return average_kernel_time(
-                stream, start_time, stop_time, kKernelWarmupCount,
-                repeat_count, run_gpuntt);
-        };
-        auto measure_phantom = [&]() {
-            return average_kernel_time(
-                stream, start_time, stop_time, kKernelWarmupCount,
-                repeat_count, run_phantom);
-        };
-        auto measure_phantom_no_batch = [&]() {
-            return average_kernel_time(
-                stream, start_time, stop_time, kKernelWarmupCount,
-                repeat_count, run_phantom_no_batch);
-        };
-
-        enum { GpunttPath, PhantomPath, PhantomNoBatchPath };
-        const int three_path_orders[] = {
-            GpunttPath, PhantomPath, PhantomNoBatchPath,
-            PhantomPath, PhantomNoBatchPath, GpunttPath,
-            PhantomNoBatchPath, GpunttPath, PhantomPath};
-        const int* path_order = &three_path_orders[(order_seed % 3) * 3];
-
-        for (int i = 0; i < 3; ++i)
-        {
-            switch (path_order[i])
-            {
-                case GpunttPath:
-                    gpuntt_ms = measure_gpuntt();
-                    break;
-                case PhantomPath:
-                    phantom_ms = measure_phantom();
-                    break;
-                default:
-                    phantom_no_batch_ms = measure_phantom_no_batch();
-                    break;
-            }
-        }
-    };
-
     for (const auto& parameter : parameters)
     {
         if (parameter.poly_modulus_degree < 8192 ||
@@ -443,7 +449,13 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
         }
 
         const auto moduli = build_key_modulus(parameter);
-        const int mod_count = static_cast<int>(moduli.size());
+        const int total_mod_count = static_cast<int>(moduli.size());
+        const int mod_count =
+            mode == NttKernelMode::PolyOrderedInverse ? 1 : total_mod_count;
+        const int start_mod_idx =
+            mode == NttKernelMode::PolyOrderedInverse
+                ? std::max(0, total_mod_count - 1)
+                : 0;
         const int n_power =
             static_cast<int>(std::log2(parameter.poly_modulus_degree));
         const auto roots_base = heongpu::generate_primitive_root_of_unity(
@@ -457,8 +469,8 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
         heongpu::DeviceVector<Root64> device_inverse_roots(inverse_roots);
         heongpu::DeviceVector<Ninverse64> device_n_inverse(n_inverse);
         auto phantom_tables =
-            heongpu::primitive::make_phantom_ntt_tables_from_heongpu_roots(
-                moduli, forward_roots, inverse_roots, n_inverse, n_power, cudaStreamLegacy);
+            heongpu::ntt::make_phantom_ntt_tables_from_heongpu_roots(
+                moduli, forward_roots, inverse_roots, n_inverse, n_power, cudaStreamLegacy, mode == NttKernelMode::ModulusOrderedForward);
 
         for (int poly_count : kKernelPolyCounts)
         {
@@ -472,18 +484,44 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
                 continue;
             }
 
+            std::vector<int> order;
+            if (mode == NttKernelMode::ModulusOrderedForward ||
+                mode == NttKernelMode::ModulusOrderedInverse)
+            {
+                order.resize(static_cast<std::size_t>(mod_count));
+                for (int i = 0; i < mod_count; ++i)
+                {
+                    order[static_cast<std::size_t>(i)] = i;
+                }
+                std::rotate(order.begin(), order.begin() + 1, order.end());
+            }
+            else if (mode == NttKernelMode::PolyOrderedInverse)
+            {
+                order.resize(static_cast<std::size_t>(batch_size));
+                for (int i = 0; i < batch_size; ++i)
+                {
+                    order[static_cast<std::size_t>(i)] = batch_size - 1 - i;
+                }
+            }
+            else
+            {
+                order.push_back(0);
+            }
+            heongpu::DeviceVector<int> device_order(order);
+
             cudaStream_t stream;
             cudaStreamCreate(&stream);
 
             gpuntt::ntt_rns_configuration<Data64> cfg = {
                 .n_power = n_power,
-                .ntt_type = mode == NttKernelMode::ForwardInplace
-                                ? gpuntt::FORWARD
-                                : gpuntt::INVERSE,
+                .ntt_type = mode == NttKernelMode::ForwardInplace ||
+                            mode == NttKernelMode::ModulusOrderedForward
+                        ? gpuntt::FORWARD
+                        : gpuntt::INVERSE,
                 .ntt_layout = gpuntt::PerPolynomial,
                 .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
                 .zero_padding = false,
-                .mod_inverse = device_n_inverse.data(),
+                .mod_inverse = device_n_inverse.data() + start_mod_idx,
                 .stream = stream};
 
             float gpuntt_ms = 0.0F;
@@ -528,9 +566,10 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
                         input_data, phantom_no_batch_output, cfg, batch_size,
                         mod_count, phantom_tables);
                 };
-                measure_paths(
-                    stream, run_gpuntt, run_phantom, run_phantom_no_batch,
-                    results.size(), gpuntt_ms, phantom_ms, phantom_no_batch_ms);
+                measure_kernel_paths(
+                    stream, start_time, stop_time, repeat_count, results.size(),
+                    run_gpuntt, run_phantom, run_phantom_no_batch, gpuntt_ms,
+                    phantom_ms, phantom_no_batch_ms);
             }
             else
             {
@@ -539,50 +578,118 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
                 Data64* phantom_no_batch_data = buffer2.data();
 
                 auto run_gpuntt = [&]() {
-                    if (mode == NttKernelMode::InverseInplace)
+                    if (mode == NttKernelMode::ForwardInplace)
+                    {
+                        gpuntt::GPU_NTT_Inplace(
+                            gpuntt_data, device_forward_roots.data(),
+                            device_moduli.data(), cfg, batch_size, mod_count);
+                    }
+                    else if (mode == NttKernelMode::InverseInplace)
                     {
                         gpuntt::GPU_INTT_Inplace(
                             gpuntt_data, device_inverse_roots.data(),
                             device_moduli.data(), cfg, batch_size, mod_count);
                     }
-                    else{
-                        gpuntt::GPU_NTT_Inplace(
-                            gpuntt_data, device_forward_roots.data(),
-                            device_moduli.data(), cfg, batch_size, mod_count);
+                    else if (mode == NttKernelMode::ModulusOrderedForward ||
+                             mode == NttKernelMode::ModulusOrderedInverse)
+                    {
+                        gpuntt::GPU_NTT_Modulus_Ordered_Inplace(
+                            gpuntt_data,
+                            mode == NttKernelMode::ModulusOrderedForward
+                                ? device_forward_roots.data()
+                                : device_inverse_roots.data(),
+                            device_moduli.data(), cfg, batch_size, mod_count,
+                            device_order.data());
+                    }
+                    else
+                    {
+                        gpuntt::GPU_NTT_Poly_Ordered_Inplace(
+                            gpuntt_data,
+                            device_inverse_roots.data() +
+                                (static_cast<std::size_t>(start_mod_idx)
+                                 << n_power),
+                            device_moduli.data() + start_mod_idx, cfg,
+                            batch_size, mod_count, device_order.data());
                     }
                 };
                 auto run_phantom = [&]() {
-                    if (mode == NttKernelMode::InverseInplace)
+                    if (mode == NttKernelMode::ForwardInplace)
+                    {
+                        heongpu::ntt::phantom_ntt_inplace_batched(
+                            phantom_data, cfg, batch_size, mod_count,
+                            phantom_tables);
+                    }
+                    else if (mode == NttKernelMode::InverseInplace)
                     {
                         heongpu::ntt::phantom_intt_inplace_batched(
                             phantom_data, cfg, batch_size, mod_count,
                             phantom_tables);
                     }
-                    else{
-                        heongpu::ntt::phantom_ntt_inplace_batched(
+                    else if (mode == NttKernelMode::ModulusOrderedForward)
+                    {
+                        heongpu::ntt::phantom_ntt_modulus_ordered_inplace_batched(
                             phantom_data, cfg, batch_size, mod_count,
+                            device_order.data(), phantom_tables);
+                    }
+                    else if (mode == NttKernelMode::ModulusOrderedInverse)
+                    {
+                        heongpu::ntt::phantom_intt_modulus_ordered_inplace_batched(
+                            phantom_data, cfg, batch_size, mod_count,
+                            device_order.data(), phantom_tables);
+                    }
+                    else
+                    {
+                        heongpu::ntt::phantom_intt_poly_ordered_inplace_batched(
+                            phantom_data, cfg, batch_size, mod_count,
+                            device_order.data(), start_mod_idx,
                             phantom_tables);
                     }
                 };
 
                 auto run_phantom_no_batch = [&]() {
-                    if (mode == NttKernelMode::InverseInplace)
-                    {
-                        heongpu::ntt::phantom_intt_inplace(
-                            phantom_no_batch_data, cfg, batch_size, mod_count,
-                            phantom_tables);
-                    }
-                    else
+                    if (mode == NttKernelMode::ForwardInplace)
                     {
                         heongpu::ntt::phantom_ntt_inplace(
                             phantom_no_batch_data, cfg, batch_size, mod_count,
                             phantom_tables);
                     }
+                    else if (mode == NttKernelMode::InverseInplace)
+                    {
+                        heongpu::ntt::phantom_intt_inplace(
+                            phantom_no_batch_data, cfg, batch_size, mod_count,
+                            phantom_tables);
+                    }
+                    else if (mode == NttKernelMode::ModulusOrderedForward)
+                    {
+                        heongpu::ntt::phantom_ntt_modulus_ordered_inplace(
+                            phantom_no_batch_data, cfg, batch_size, mod_count,
+                            device_order.data(), phantom_tables);
+                    }
+                    else if (mode == NttKernelMode::ModulusOrderedInverse)
+                    {
+                        heongpu::ntt::phantom_intt_modulus_ordered_inplace(
+                            phantom_no_batch_data, cfg, batch_size, mod_count,
+                            device_order.data(), phantom_tables);
+                    }
+                    else
+                    {
+                        // Poly ordered didn't implement original phantom; 
+                        // Always batched due to tiny workload;
+                        // So mimic one row per launch through the implemented batched primitive.
+                        for (int row = 0; row < batch_size; ++row)
+                        {
+                            heongpu::ntt::phantom_intt_poly_ordered_inplace_batched(
+                                phantom_no_batch_data, cfg, 1, 1,
+                                device_order.data() + row, start_mod_idx,
+                                phantom_tables);
+                        }
+                    }
                 };
 
-                measure_paths(
-                    stream, run_gpuntt, run_phantom, run_phantom_no_batch,
-                    results.size(), gpuntt_ms, phantom_ms, phantom_no_batch_ms);
+                measure_kernel_paths(
+                    stream, start_time, stop_time, repeat_count, results.size(),
+                    run_gpuntt, run_phantom, run_phantom_no_batch, gpuntt_ms,
+                    phantom_ms, phantom_no_batch_ms);
             }
 
             cudaStreamDestroy(stream);
@@ -615,7 +722,7 @@ void sort_parameters_by_n(std::vector<ParameterSet>& parameters)
 }
 
 void print_ntt_kernel_table(std::vector<NttKernelResult> results,
-                            const std::string& transform)
+                            NttKernelMode mode)
 {
     std::sort(results.begin(), results.end(),
               [](const NttKernelResult& lhs, const NttKernelResult& rhs) {
@@ -630,10 +737,26 @@ void print_ntt_kernel_table(std::vector<NttKernelResult> results,
                   return lhs.poly_count < rhs.poly_count;
               });
 
-    std::cout << "\n=================== Kernel microbenchmark: " << transform << " NTT speedup ===================" << std::endl;
-    std::cout << "Comparison: GPUNTT RNS " << transform << " vs HEonGPU PhantomNTT " << transform << std::endl;
+    const char* title = "unknown NTT";
+    switch (mode)
+    {
+        case NttKernelMode::ForwardInplace:
+            title = "NTT inplace"; break;
+        case NttKernelMode::InverseInplace:
+            title = "INTT inplace"; break;
+        case NttKernelMode::InverseOutOfPlace:
+            title = "INTT"; break;
+        case NttKernelMode::ModulusOrderedForward:
+            title = "Modulus_ordered NTT"; break;
+        case NttKernelMode::ModulusOrderedInverse:
+            title = "Modulus_ordered INTT"; break;
+        case NttKernelMode::PolyOrderedInverse:
+            title = "Poly_ordered INTT"; break;
+    }
+
+    std::cout << "\n=================== Kernel microbenchmark: " << title
+              << " speedup ===================" << std::endl;
     std::cout << "Speedup = GPUNTT ms / PhantomNTT ms; Interpretation: >1.00 PhantomNTT faster, <1.00 GPUNTT faster." << std::endl;
-    std::cout << "Modes: phantom_batch - batch poly operation; phantom_no_batch - one poly at a time." << std::endl;
 
     std::vector<int> poly_counts;
     for (const auto& result : results)
@@ -717,8 +840,7 @@ void print_operation_summary_table(
                  "HEOperator::apply_galois_ckks_method_II" << std::endl;
     std::cout << "  rescale_leveled: HEArithmeticOperator::rescale -> HEOperator::rescale_inplace_ckks_leveled" << std::endl;
     std::cout << "  regular_bootstrapping_v2: HEArithmeticOperator::regular_bootstrapping_v2" << std::endl;
-    std::cout << "Values are GPUNTT ms / PhantomNTT ms." << std::endl;
-    std::cout << "Interpretation: >1.00 PhantomNTT faster, <1.00 GPUNTT faster." << std::endl;
+    std::cout << "Interpretation: GPUNTT ms / PhantomNTT ms, >1.00 PhantomNTT faster, <1.00 GPUNTT faster." << std::endl;
     std::cout << std::left << std::setw(34) << "parameter / N"
               << std::right << std::setw(12) << "relin_II"
               << std::right << std::setw(16) << "rotate_col_II"
@@ -752,9 +874,14 @@ void print_operation_summary_table(
     }
 }
 
-void run_phantomntt_per_poly_ntt_benchmark(
-    const std::string& optimization_name, int repeat_count)
+int main()
 {
+    int repeat_count = 10;
+    if (const char* repeat_env = std::getenv("HEONGPU_CKKS_NTT_BENCH_REPEAT"))
+    {
+        repeat_count = std::max(1, std::atoi(repeat_env));
+    }
+
     auto parameters = make_parameters();
     sort_parameters_by_n(parameters);
 
@@ -765,20 +892,28 @@ void run_phantomntt_per_poly_ntt_benchmark(
                      return parameter.poly_modulus_degree <= MAX_POLY_DEGREE;
                  });
 
-    std::cout << "\nOptimization: " << optimization_name << std::endl;
+    std::cout << "CKKS NTT backend benchmark" << std::endl;
+    std::cout << "Repeat count: " << repeat_count << std::endl;
 
-    const auto forward_ntt_results =
-        run_ntt_kernel_comparison(parameters, repeat_count, NttKernelMode::ForwardInplace);
-    print_ntt_kernel_table(forward_ntt_results, "forward_inplace");
+    // Kernel microbenchmarks.
+    std::cout << "\nOptimization: GPUNTT vs PhantomNTT kernel - Inplace, Modulus Ordered and Poly Ordered" << std::endl;
+    
+    const NttKernelMode kernel_modes[] = {
+        NttKernelMode::ForwardInplace,
+        NttKernelMode::InverseInplace,
+        NttKernelMode::InverseOutOfPlace,
+        NttKernelMode::ModulusOrderedForward,
+        NttKernelMode::ModulusOrderedInverse,
+        NttKernelMode::PolyOrderedInverse};
+        
+    for (NttKernelMode mode : kernel_modes)
+    {
+        const auto results =
+            run_ntt_kernel_comparison(parameters, repeat_count, mode);
+        print_ntt_kernel_table(results, mode);
+    }
 
-    const auto inverse_ntt_results =
-        run_ntt_kernel_comparison(parameters, repeat_count, NttKernelMode::InverseInplace);
-    print_ntt_kernel_table(inverse_ntt_results, "inverse_inplace");
-
-    const auto inverse_outofplace_results =
-        run_ntt_kernel_comparison(parameters, repeat_count, NttKernelMode::InverseOutOfPlace);
-    print_ntt_kernel_table(inverse_outofplace_results, "inverse_outofplace");
-
+    // HEOperator benchmarks.
     std::vector<BenchmarkResult> gpuntt_results;
     std::vector<BenchmarkResult> phantom_results;
     gpuntt_results.reserve(operation_parameters.size());
@@ -805,6 +940,7 @@ void run_phantomntt_per_poly_ntt_benchmark(
         phantom_results.push_back(phantom);
     }
 
+    //Boostrapping benchmark.
     const auto boot_parameter =
         std::find_if(operation_parameters.begin(), operation_parameters.end(),
                      [](const ParameterSet& parameter) {
@@ -831,20 +967,5 @@ void run_phantomntt_per_poly_ntt_benchmark(
     }
 
     print_operation_summary_table(gpuntt_results, phantom_results);
-}
-
-int main()
-{
-    int repeat_count = 10;
-    if (const char* repeat_env = std::getenv("HEONGPU_CKKS_NTT_BENCH_REPEAT"))
-    {
-        repeat_count = std::max(1, std::atoi(repeat_env));
-    }
-
-    std::cout << "CKKS NTT backend benchmark" << std::endl;
-    std::cout << "Repeat count: " << repeat_count << std::endl;
-
-    run_phantomntt_per_poly_ntt_benchmark(
-        "PhantomNTT inplace NTT - batch switch", repeat_count);
     return EXIT_SUCCESS;
 }

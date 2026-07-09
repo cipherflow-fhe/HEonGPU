@@ -29,6 +29,8 @@ namespace ntt
         cudaStream_t stream = 0,
         bool forward_only = false);
 
+    /////////////////////////////////// Forward NTT ////////////////////////////////
+
     void phantom_ntt_inplace(
         Data64* data,
         gpuntt::ntt_rns_configuration<Data64> cfg,
@@ -43,6 +45,23 @@ namespace ntt
         int mod_count,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
 
+    void phantom_ntt_modulus_ordered_inplace(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const int* order,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_ntt_modulus_ordered_inplace_batched(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const int* order,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    /////////////////////////////////// Inverse NTT ////////////////////////////////
     void phantom_intt_inplace(
         Data64* data,
         gpuntt::ntt_rns_configuration<Data64> cfg,
@@ -71,6 +90,31 @@ namespace ntt
         gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size,
         int mod_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt_modulus_ordered_inplace(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const int* order,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt_modulus_ordered_inplace_batched(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const int* order,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void phantom_intt_poly_ordered_inplace_batched(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int batch_size,
+        int mod_count,
+        const int* order,
+        int start_mod_idx,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
 
 } // namespace ntt
