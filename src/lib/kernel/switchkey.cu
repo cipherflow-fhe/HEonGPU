@@ -397,6 +397,125 @@ namespace heongpu
         output[index + (current_rns_mod_count << n_power)] = ct_1_sum;
     }
 
+    /**
+     * @company CipherFlow
+     */
+    __global__ void keyswitch_multiply_accumulate_leveled_method_II_kernel(
+        Data64* input, const Data64* __restrict__ relinkey, Data64* output,
+        Modulus64* modulus, int swk_rns_mod_count, int swk_decomp_count,
+        int current_decomp_mod_count, int current_rns_mod_count,
+        int iteration_count1, int iteration_count2, int level, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // Ring Sizes
+        int block_y = blockIdx.y; // RNS Modulus Count
+
+        int modulus_index =
+            (block_y < current_decomp_mod_count) ? block_y : (block_y + level);
+        int key_index = (block_y < current_decomp_mod_count)
+                            ? block_y
+                            : (block_y - current_decomp_mod_count + swk_decomp_count);
+
+        int key_offset1 = swk_rns_mod_count << n_power;
+        int key_offset2 = swk_rns_mod_count << (n_power + 1);
+        int index = idx + (block_y << n_power);
+        int index2 = idx + (key_index << n_power);
+
+        Modulus64 modulus_reg = modulus[modulus_index];
+
+        Data64 ct_0_sum = 0;
+        Data64 ct_1_sum = 0;
+#pragma unroll
+        for (int i = 0; i < iteration_count1; i++)
+        {
+            Data64 in_piece1 =
+                input[index + (((4 * i) * (current_rns_mod_count)) << n_power)];
+            Data64 rk0_1 = __ldg(&relinkey[index2 + (key_offset2 * (4 * i))]);
+            Data64 rk1_1 = __ldg(
+                &relinkey[index2 + (key_offset2 * (4 * i)) + key_offset1]);
+
+            Data64 in_piece2 =
+                input[index +
+                      ((((4 * i) + 1) * (current_rns_mod_count)) << n_power)];
+            Data64 rk0_2 =
+                __ldg(&relinkey[index2 + (key_offset2 * ((4 * i) + 1))]);
+            Data64 rk1_2 =
+                __ldg(&relinkey[index2 + (key_offset2 * ((4 * i) + 1)) +
+                                key_offset1]);
+
+            Data64 in_piece3 =
+                input[index +
+                      ((((4 * i) + 2) * (current_rns_mod_count)) << n_power)];
+            Data64 rk0_3 =
+                __ldg(&relinkey[index2 + (key_offset2 * ((4 * i) + 2))]);
+            Data64 rk1_3 =
+                __ldg(&relinkey[index2 + (key_offset2 * ((4 * i) + 2)) +
+                                key_offset1]);
+
+            Data64 in_piece4 =
+                input[index +
+                      ((((4 * i) + 3) * (current_rns_mod_count)) << n_power)];
+            Data64 rk0_4 =
+                __ldg(&relinkey[index2 + (key_offset2 * ((4 * i) + 3))]);
+            Data64 rk1_4 =
+                __ldg(&relinkey[index2 + (key_offset2 * ((4 * i) + 3)) +
+                                key_offset1]);
+
+            Data64 mult0_1 =
+                OPERATOR_GPU_64::mult(in_piece1, rk0_1, modulus_reg);
+            Data64 mult1_1 =
+                OPERATOR_GPU_64::mult(in_piece1, rk1_1, modulus_reg);
+
+            Data64 mult0_2 =
+                OPERATOR_GPU_64::mult(in_piece2, rk0_2, modulus_reg);
+            Data64 mult1_2 =
+                OPERATOR_GPU_64::mult(in_piece2, rk1_2, modulus_reg);
+
+            Data64 mult0_3 =
+                OPERATOR_GPU_64::mult(in_piece3, rk0_3, modulus_reg);
+            Data64 mult1_3 =
+                OPERATOR_GPU_64::mult(in_piece3, rk1_3, modulus_reg);
+
+            Data64 mult0_4 =
+                OPERATOR_GPU_64::mult(in_piece4, rk0_4, modulus_reg);
+            Data64 mult1_4 =
+                OPERATOR_GPU_64::mult(in_piece4, rk1_4, modulus_reg);
+
+            ct_0_sum = OPERATOR_GPU_64::add(ct_0_sum, mult0_1, modulus_reg);
+            ct_1_sum = OPERATOR_GPU_64::add(ct_1_sum, mult1_1, modulus_reg);
+
+            ct_0_sum = OPERATOR_GPU_64::add(ct_0_sum, mult0_2, modulus_reg);
+            ct_1_sum = OPERATOR_GPU_64::add(ct_1_sum, mult1_2, modulus_reg);
+
+            ct_0_sum = OPERATOR_GPU_64::add(ct_0_sum, mult0_3, modulus_reg);
+            ct_1_sum = OPERATOR_GPU_64::add(ct_1_sum, mult1_3, modulus_reg);
+
+            ct_0_sum = OPERATOR_GPU_64::add(ct_0_sum, mult0_4, modulus_reg);
+            ct_1_sum = OPERATOR_GPU_64::add(ct_1_sum, mult1_4, modulus_reg);
+        }
+
+        int loop_offset = iteration_count1 * 4;
+#pragma unroll
+        for (int i = loop_offset; i < loop_offset + iteration_count2; i++)
+        {
+            Data64 in_piece1 =
+                input[index + ((i * (current_rns_mod_count)) << n_power)];
+            Data64 rk0_1 = __ldg(&relinkey[index2 + (key_offset2 * i)]);
+            Data64 rk1_1 =
+                __ldg(&relinkey[index2 + (key_offset2 * i) + key_offset1]);
+
+            Data64 mult0_1 =
+                OPERATOR_GPU_64::mult(in_piece1, rk0_1, modulus_reg);
+            Data64 mult1_1 =
+                OPERATOR_GPU_64::mult(in_piece1, rk1_1, modulus_reg);
+
+            ct_0_sum = OPERATOR_GPU_64::add(ct_0_sum, mult0_1, modulus_reg);
+            ct_1_sum = OPERATOR_GPU_64::add(ct_1_sum, mult1_1, modulus_reg);
+        }
+
+        output[index] = ct_0_sum;
+        output[index + (current_rns_mod_count << n_power)] = ct_1_sum;
+    }
+
     __global__ void divide_round_lastq_kernel(Data64* input, Data64* ct,
                                               Data64* output,
                                               Modulus64* modulus, Data64* half,

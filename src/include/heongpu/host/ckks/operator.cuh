@@ -1067,6 +1067,12 @@ namespace heongpu
 
             int current_decomp_count = context_->Q_size - input1.depth_;
 
+            // @company CipherFlow
+            if (input1.level() > relin_key.level())
+            {
+                throw std::invalid_argument("Ciphertext level exceeds relin key level!");
+            }
+
             if (input1.memory_size() < (3 * context_->n * current_decomp_count))
             {
                 throw std::invalid_argument("Invalid Ciphertexts size!");
@@ -1125,6 +1131,12 @@ namespace heongpu
             }
 
             int current_decomp_count = context_->Q_size - input1.depth_;
+
+            // @company CipherFlow
+            if (input1.level() > relin_key.level())
+            {
+                throw std::invalid_argument("Ciphertext level exceeds relin key level!");
+            }
 
             if (input1.memory_size() < (3 * context_->n * current_decomp_count))
             {
@@ -1197,6 +1209,12 @@ namespace heongpu
             }
 
             int current_decomp_count = context_->Q_size - input1.depth_;
+
+            // @company CipherFlow
+            if (input1.level() > galois_key.level())
+            {
+                throw std::invalid_argument("Ciphertext level exceeds galois key level!");
+            }
 
             if (input1.memory_size() < (2 * context_->n * current_decomp_count))
             {
@@ -1448,6 +1466,12 @@ namespace heongpu
             }
 
             int current_decomp_count = context_->Q_size - input1.depth_;
+
+            // @company CipherFlow
+            if (input1.level() > conjugate_key.level())
+            {
+                throw std::invalid_argument("Ciphertext level exceeds galois key level!");
+            }
 
             if (input1.memory_size() < (2 * context_->n * current_decomp_count))
             {

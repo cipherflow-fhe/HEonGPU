@@ -55,7 +55,7 @@ namespace heongpu
         /**
          * @company CipherFlow
          */
-        __host__ Relinkey(HEContext<Scheme::CKKS> context,
+        __host__ Relinkey(HEContext<Scheme::CKKS> context, int level,
                           const ExecutionOptions& options);
 
         /**
@@ -105,6 +105,18 @@ namespace heongpu
             device_location_.set_stream(stream);
         }
 
+        // @company CipherFlow
+        inline int depth() const noexcept
+        {
+            return depth_;
+        }
+
+        // @company CipherFlow
+        inline int level() const noexcept
+        {
+            return Q_size_ - (depth_ + 1);
+        }
+
         /**
          * @brief Copy constructor for creating a new Relinkey object by copying
          * an existing one.
@@ -119,7 +131,8 @@ namespace heongpu
             : context_(copy.context_), scheme_(copy.scheme_),
               key_type(copy.key_type), ring_size(copy.ring_size),
               Q_prime_size_(copy.Q_prime_size_), Q_size_(copy.Q_size_),
-              d_(copy.d_), d_tilda_(copy.d_tilda_), r_prime_(copy.r_prime_),
+              depth_(copy.depth_), d_(copy.d_), d_tilda_(copy.d_tilda_), // @company CipherFlow
+              r_prime_(copy.r_prime_), // @company CipherFlow
               storage_type_(copy.storage_type_),
               relinkey_size_(copy.relinkey_size_),
               relinkey_size_leveled_(copy.relinkey_size_leveled_),
@@ -194,7 +207,8 @@ namespace heongpu
               key_type(std::move(assign.key_type)),
               ring_size(std::move(assign.ring_size)),
               Q_prime_size_(std::move(assign.Q_prime_size_)),
-              Q_size_(std::move(assign.Q_size_)), d_(std::move(assign.d_)),
+              Q_size_(std::move(assign.Q_size_)), // @company CipherFlow
+              depth_(std::move(assign.depth_)), d_(std::move(assign.d_)), // @company CipherFlow
               d_tilda_(std::move(assign.d_tilda_)),
               r_prime_(std::move(assign.r_prime_)),
               storage_type_(std::move(assign.storage_type_)),
@@ -261,6 +275,7 @@ namespace heongpu
                 ring_size = copy.ring_size;
                 Q_prime_size_ = copy.Q_prime_size_;
                 Q_size_ = copy.Q_size_;
+                depth_ = copy.depth_; // @company CipherFlow
                 d_ = copy.d_;
                 d_tilda_ = copy.d_tilda_;
                 r_prime_ = copy.r_prime_;
@@ -348,6 +363,7 @@ namespace heongpu
                 ring_size = std::move(assign.ring_size);
                 Q_prime_size_ = std::move(assign.Q_prime_size_);
                 Q_size_ = std::move(assign.Q_size_);
+                depth_ = std::move(assign.depth_); // @company CipherFlow
                 d_ = std::move(assign.d_);
                 d_tilda_ = std::move(assign.d_tilda_);
                 r_prime_ = std::move(assign.r_prime_);
@@ -420,6 +436,8 @@ namespace heongpu
         int ring_size;
         int Q_prime_size_;
         int Q_size_;
+
+        int depth_ = 0; // @company CipherFlow
 
         int d_;
         int d_tilda_;
@@ -544,12 +562,6 @@ namespace heongpu
          * @param shift_vec Vector of integers representing the allowed shifts
          * for rotations.
          */
-        /**
-         * @company CipherFlow
-         */
-        __host__ Galoiskey(HEContext<Scheme::CKKS> context,
-                           const ExecutionOptions& options);
-
         __host__ Galoiskey(HEContext<Scheme::CKKS> context,
                            std::vector<int>& shift_vec);
 
@@ -569,7 +581,7 @@ namespace heongpu
          * @company CipherFlow
          */       
         __host__ Galoiskey(HEContext<Scheme::CKKS> context,
-                           std::vector<uint32_t>& galois_elts,
+                           std::vector<uint32_t>& galois_elts, int level,
                            const ExecutionOptions& options);
 
         /**
@@ -623,6 +635,18 @@ namespace heongpu
             }
         }
 
+        // @company CipherFlow
+        inline int depth() const noexcept
+        {
+            return depth_;
+        }
+
+        // @company CipherFlow
+        inline int level() const noexcept
+        {
+            return Q_size_ - (depth_ + 1);
+        }
+
         /**
          * @brief Copy constructor for creating a new Galoiskey object by
          * copying an existing one.
@@ -637,7 +661,7 @@ namespace heongpu
             : context_(copy.context_), scheme_(copy.scheme_),
               key_type(copy.key_type), ring_size(copy.ring_size),
               Q_prime_size_(copy.Q_prime_size_), Q_size_(copy.Q_size_),
-              d_(copy.d_), customized(copy.customized),
+              depth_(copy.depth_), d_(copy.d_), customized(copy.customized), // @company CipherFlow
               group_order_(copy.group_order_),
               storage_type_(copy.storage_type_),
               galoiskey_size_(copy.galoiskey_size_),
@@ -696,7 +720,8 @@ namespace heongpu
               key_type(std::move(assign.key_type)),
               ring_size(std::move(assign.ring_size)),
               Q_prime_size_(std::move(assign.Q_prime_size_)),
-              Q_size_(std::move(assign.Q_size_)), d_(std::move(assign.d_)),
+              Q_size_(std::move(assign.Q_size_)), // @company CipherFlow
+              depth_(std::move(assign.depth_)), d_(std::move(assign.d_)), // @company CipherFlow
               customized(std::move(assign.customized)),
               group_order_(std::move(assign.group_order_)),
               storage_type_(std::move(assign.storage_type_)),
@@ -751,6 +776,7 @@ namespace heongpu
                 ring_size = copy.ring_size;
                 Q_prime_size_ = copy.Q_prime_size_;
                 Q_size_ = copy.Q_size_;
+                depth_ = copy.depth_; // @company CipherFlow
                 d_ = copy.d_;
                 customized = copy.customized;
                 group_order_ = copy.group_order_;
@@ -820,6 +846,7 @@ namespace heongpu
                 ring_size = std::move(assign.ring_size);
                 Q_prime_size_ = std::move(assign.Q_prime_size_);
                 Q_size_ = std::move(assign.Q_size_);
+                depth_ = std::move(assign.depth_); // @company CipherFlow
                 d_ = std::move(assign.d_);
                 customized = std::move(assign.customized);
                 group_order_ = std::move(assign.group_order_);
@@ -883,6 +910,8 @@ namespace heongpu
 
         int Q_prime_size_;
         int Q_size_;
+
+        int depth_ = 0; // @company CipherFlow
 
         int d_;
 
@@ -986,7 +1015,7 @@ namespace heongpu
         /**
          * @company CipherFlow
          */
-        __host__ Switchkey(HEContext<Scheme::CKKS> context,
+        __host__ Switchkey(HEContext<Scheme::CKKS> context, int level,
                             const ExecutionOptions& options);
 
         /**
@@ -1026,6 +1055,18 @@ namespace heongpu
             device_location_.set_stream(stream);
         }
 
+        // @company CipherFlow
+        inline int depth() const noexcept
+        {
+            return depth_;
+        }
+
+        // @company CipherFlow
+        inline int level() const noexcept
+        {
+            return Q_size_ - (depth_ + 1);
+        }
+
         Switchkey() = default;
         Switchkey(const Switchkey& copy) = default;
         Switchkey(Switchkey&& source) = default;
@@ -1050,6 +1091,8 @@ namespace heongpu
 
         int Q_prime_size_;
         int Q_size_;
+
+        int depth_ = 0; // @company CipherFlow
 
         int d_;
 
