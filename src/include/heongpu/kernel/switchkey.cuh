@@ -36,6 +36,13 @@ namespace heongpu
         int current_decomp_mod_count, int current_rns_mod_count,
         int iteration_count1, int iteration_count2, int level, int n_power);
 
+    // @company CipherFlow
+    __global__ void keyswitch_multiply_accumulate_leveled_method_II_kernel(
+        Data64* input, const Data64* __restrict__ relinkey, Data64* output,
+        Modulus64* modulus, int swk_rns_mod_count, int swk_decomp_count,
+        int current_decomp_mod_count, int current_rns_mod_count,
+        int iteration_count1, int iteration_count2, int level, int n_power);
+
     __global__ void
     divide_round_lastq_kernel(Data64* input, Data64* ct, Data64* output,
                               Modulus64* modulus, Data64* half,

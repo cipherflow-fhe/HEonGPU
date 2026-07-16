@@ -1183,6 +1183,9 @@ namespace heongpu
         int first_decomp_count = context_->Q_size;
         int current_decomp_count = context_->Q_size - input1.depth_;
 
+        int swk_rns_mod_count = context_->Q_prime_size - relin_key.depth(); // @company CipherFlow
+        int swk_decomp_count = context_->Q_size - relin_key.depth(); // @company CipherFlow
+
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = context_->n_power,
             .ntt_type = gpuntt::INVERSE,
@@ -1259,10 +1262,10 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp1_relin, relin_key.data(), temp2_relin,
-                          context_->modulus_->data(), first_rns_mod_count,
-                          current_decomp_count, current_rns_mod_count,
-                          iteration_count_1, iteration_count_2, input1.depth_,
-                          context_->n_power);
+                          context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                          swk_decomp_count, current_decomp_count, // @company CipherFlow
+                          current_rns_mod_count, iteration_count_1, // @company CipherFlow
+                          iteration_count_2, input1.depth_, context_->n_power); 
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
         else
@@ -1271,10 +1274,10 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp1_relin, key_location.data(), temp2_relin,
-                          context_->modulus_->data(), first_rns_mod_count,
-                          current_decomp_count, current_rns_mod_count,
-                          iteration_count_1, iteration_count_2, input1.depth_,
-                          context_->n_power);
+                          context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                          swk_decomp_count, current_decomp_count, // @company CipherFlow
+                          current_rns_mod_count, iteration_count_1, // @company CipherFlow
+                          iteration_count_2, input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
@@ -1308,7 +1311,7 @@ namespace heongpu
      */
     __host__ void
     HEOperator<Scheme::CKKS>::relinearize_external_product_method2_ckks(
-        Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output, 
+        Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output,
         Relinkey<Scheme::CKKS>& relin_key, const cudaStream_t stream)
     {
         int first_rns_mod_count = context_->Q_prime_size;
@@ -1316,6 +1319,9 @@ namespace heongpu
 
         int first_decomp_count = context_->Q_size;
         int current_decomp_count = context_->Q_size - input1.depth_;
+
+        int swk_rns_mod_count = context_->Q_prime_size - relin_key.depth();
+        int swk_decomp_count = context_->Q_size - relin_key.depth();
 
         DeviceVector<Data64> output_memory((2 * context_->n * current_decomp_count), stream);
 
@@ -1383,7 +1389,7 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0, stream>>>(
                 temp1_relin, relin_key.data(), temp2_relin, context_->modulus_->data(),
-                first_rns_mod_count, current_decomp_count,
+                swk_rns_mod_count, swk_decomp_count, current_decomp_count,
                 current_rns_mod_count, iteration_count_1, iteration_count_2,
                 input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -1394,7 +1400,7 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0, stream>>>(
                 temp1_relin, key_location.data(), temp2_relin, context_->modulus_->data(),
-                first_rns_mod_count, current_decomp_count,
+                swk_rns_mod_count, swk_decomp_count, current_decomp_count,
                 current_rns_mod_count, iteration_count_1, iteration_count_2,
                 input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
@@ -1925,6 +1931,9 @@ namespace heongpu
         int first_decomp_count = context_->Q_size;
         int current_decomp_count = context_->Q_size - input1.depth_;
 
+        int swk_rns_mod_count = context_->Q_prime_size - galois_key.depth(); // @company CipherFlow
+        int swk_decomp_count = context_->Q_size - galois_key.depth(); // @company CipherFlow
+
         DeviceVector<Data64> output_memory(
             (2 * context_->n * current_decomp_count), stream);
 
@@ -2019,9 +2028,9 @@ namespace heongpu
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(
                 temp3_rotation, galois_key.device_location_[galois_elt].data(),
-                temp4_rotation, context_->modulus_->data(), first_rns_mod_count,
-                current_decomp_count, current_rns_mod_count, iteration_count_1,
-                iteration_count_2, input1.depth_, context_->n_power);
+                temp4_rotation, context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                swk_decomp_count, current_decomp_count, current_rns_mod_count, // @company CipherFlow
+                iteration_count_1, iteration_count_2, input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
         else
@@ -2031,10 +2040,10 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp3_rotation, key_location.data(), temp4_rotation,
-                          context_->modulus_->data(), first_rns_mod_count,
-                          current_decomp_count, current_rns_mod_count,
-                          iteration_count_1, iteration_count_2, input1.depth_,
-                          context_->n_power);
+                          context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                          swk_decomp_count, current_decomp_count, // @company CipherFlow
+                          current_rns_mod_count, iteration_count_1, iteration_count_2, // @company CipherFlow
+                          input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
@@ -2228,6 +2237,15 @@ namespace heongpu
         int first_decomp_count = context_->Q_size;
         int current_decomp_count = context_->Q_size - input1.depth_;
 
+        // @company CipherFlow
+        if (input1.level() > switch_key.level())
+        {
+            throw std::invalid_argument("Ciphertext level exceeds switch key level!");
+        }
+
+        int swk_rns_mod_count = context_->Q_prime_size - switch_key.depth(); // @company CipherFlow
+        int swk_decomp_count = context_->Q_size - switch_key.depth(); // @company CipherFlow
+
         DeviceVector<Data64> output_memory(
             (2 * context_->n * current_decomp_count), stream);
 
@@ -2326,10 +2344,10 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp3_rotation, switch_key.data(), temp4_rotation,
-                          context_->modulus_->data(), first_rns_mod_count,
-                          current_decomp_count, current_rns_mod_count,
-                          iteration_count_1, iteration_count_2, input1.depth_,
-                          context_->n_power);
+                          context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                          swk_decomp_count, current_decomp_count, // @company CipherFlow
+                          current_rns_mod_count, iteration_count_1, // @company CipherFlow
+                          iteration_count_2, input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
         else
@@ -2339,10 +2357,10 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp3_rotation, key_location.data(), temp4_rotation,
-                          context_->modulus_->data(), first_rns_mod_count,
-                          current_decomp_count, current_rns_mod_count,
-                          iteration_count_1, iteration_count_2, input1.depth_,
-                          context_->n_power);
+                          context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                          swk_decomp_count, current_decomp_count, // @company CipherFlow
+                          current_rns_mod_count, iteration_count_1, // @company CipherFlow
+                          iteration_count_2, input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
@@ -2518,6 +2536,9 @@ namespace heongpu
         int first_decomp_count = context_->Q_size;
         int current_decomp_count = context_->Q_size - input1.depth_;
 
+        int swk_rns_mod_count = context_->Q_prime_size - conjugate_key.depth(); // @company CipherFlow
+        int swk_decomp_count = context_->Q_size - conjugate_key.depth(); // @company CipherFlow
+
         DeviceVector<Data64> output_memory(
             (2 * context_->n * current_decomp_count), stream);
 
@@ -2614,9 +2635,10 @@ namespace heongpu
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp3_rotation, conjugate_key.c_data(),
                           temp4_rotation, context_->modulus_->data(),
-                          first_rns_mod_count, current_decomp_count,
-                          current_rns_mod_count, iteration_count_1,
-                          iteration_count_2, input1.depth_, context_->n_power);
+                          swk_rns_mod_count, swk_decomp_count, // @company CipherFlow
+                          current_decomp_count, current_rns_mod_count, // @company CipherFlow
+                          iteration_count_1, iteration_count_2, input1.depth_,
+                          context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
         else
@@ -2626,10 +2648,10 @@ namespace heongpu
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((context_->n >> 8), current_rns_mod_count, 1), 256, 0,
                 stream>>>(temp3_rotation, key_location.data(), temp4_rotation,
-                          context_->modulus_->data(), first_rns_mod_count,
-                          current_decomp_count, current_rns_mod_count,
-                          iteration_count_1, iteration_count_2, input1.depth_,
-                          context_->n_power);
+                          context_->modulus_->data(), swk_rns_mod_count, // @company CipherFlow
+                          swk_decomp_count, current_decomp_count, // @company CipherFlow
+                          current_rns_mod_count, iteration_count_1, iteration_count_2, // @company CipherFlow
+                          input1.depth_, context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
@@ -3443,12 +3465,20 @@ namespace heongpu
         result = cipher;
         cipher.switch_stream(old_stream);
 
+        // @company CipherFlow
+        if (cipher.level() > galois_key.level())
+        {
+            throw std::invalid_argument("Ciphertext level exceeds galois key level!");
+        }
+
         int matrix_count = diags_matrices_bsgs_.size();
         int n = context_->n;
         int Q_size = context_->Q_size;
         int P_size = context_->P_size;
         int Q_prime_size = context_->Q_prime_size;
         int first_rns_mod_count = Q_prime_size;
+        int swk_rns_mod_count = Q_prime_size - galois_key.depth(); // @company CipherFlow
+        int swk_decomp_count = Q_size - galois_key.depth(); // @company CipherFlow
         cudaStream_t stream = options.stream_;
 
         for (int m = 0; m < matrix_count; m++) // @company CipherFlow
@@ -3642,9 +3672,9 @@ namespace heongpu
                             temp3.data(),
                             galois_key.device_location_[galois_elt].data(),
                             temp4.data(), context_->modulus_->data(),
-                            first_rns_mod_count, current_decomp_count,
-                            current_rns_mod_count, iteration_count_1,
-                            iteration_count_2, current_level,
+                            swk_rns_mod_count, swk_decomp_count, // @company CipherFlow
+                            current_decomp_count, current_rns_mod_count, // @company CipherFlow
+                            iteration_count_1, iteration_count_2, current_level,
                             context_->n_power);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
@@ -3656,10 +3686,10 @@ namespace heongpu
                             dim3((n >> 8), current_rns_mod_count, 1), 256, 0,
                             stream>>>(temp3.data(), key_location.data(),
                                       temp4.data(), context_->modulus_->data(),
-                                      first_rns_mod_count, current_decomp_count,
-                                      current_rns_mod_count, iteration_count_1,
-                                      iteration_count_2, current_level,
-                                      context_->n_power);
+                                      swk_rns_mod_count, swk_decomp_count, // @company CipherFlow
+                                      current_decomp_count, current_rns_mod_count, // @company CipherFlow
+                                      iteration_count_1, iteration_count_2,
+                                      current_level, context_->n_power);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                 }
@@ -3822,9 +3852,9 @@ namespace heongpu
                             temp3_gs.data(),
                             galois_key.device_location_[galois_elt_gs].data(),
                             temp4_gs.data(), context_->modulus_->data(),
-                            first_rns_mod_count, current_decomp_count,
-                            current_rns_mod_count, iteration_count_1,
-                            iteration_count_2, current_level,
+                            swk_rns_mod_count, swk_decomp_count, // @company CipherFlow
+                            current_decomp_count, current_rns_mod_count, // @company CipherFlow
+                            iteration_count_1, iteration_count_2, current_level,
                             context_->n_power);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
@@ -3837,10 +3867,10 @@ namespace heongpu
                             stream>>>(temp3_gs.data(), key_location.data(),
                                       temp4_gs.data(),
                                       context_->modulus_->data(),
-                                      first_rns_mod_count, current_decomp_count,
-                                      current_rns_mod_count, iteration_count_1,
-                                      iteration_count_2, current_level,
-                                      context_->n_power);
+                                      swk_rns_mod_count, swk_decomp_count, // @company CipherFlow
+                                      current_decomp_count, current_rns_mod_count, // @company CipherFlow
+                                      iteration_count_1, iteration_count_2,
+                                      current_level, context_->n_power);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                 }

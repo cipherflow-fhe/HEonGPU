@@ -45,13 +45,19 @@ namespace heongpu
      * @company CipherFlow
      */
     __host__ Relinkey<Scheme::CKKS>::Relinkey(HEContext<Scheme::CKKS> context,
+                                             int level,
                                              const ExecutionOptions& options)
     {
         if (!context || !context->context_generated_)
         {
             throw std::invalid_argument("HEContext is not generated!");
         }
+        if ((level < 0) || (level >= context->Q_size))
+        {
+            throw std::invalid_argument("Invalid relin key level!");
+        }
 
+        context_ = context;
         scheme_ = context->scheme_;
         key_type = context->keyswitching_type_;
 
@@ -70,8 +76,10 @@ namespace heongpu
             break;
             case 2: // KEYSWITCHING_METHOD_II
             {
-                d_ = context->d_leveled->operator[](0);
-                relinkey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+                depth_ = Q_size_ - (level + 1);
+                d_ = context->d_leveled->operator[](depth_);
+                int current_Q_prime_size = Q_prime_size_ - depth_;
+                relinkey_size_ = 2 * d_ * current_Q_prime_size * ring_size;
             }
             break;
             case 3: // KEYSWITCHING_METHOD_III
@@ -175,6 +183,8 @@ namespace heongpu
 
             os.write((char*) &Q_size_, sizeof(Q_size_));
 
+            os.write((char*) &depth_, sizeof(depth_)); // @company CipherFlow
+
             os.write((char*) &d_, sizeof(d_));
 
             os.write((char*) &d_tilda_, sizeof(d_tilda_));
@@ -231,6 +241,8 @@ namespace heongpu
             is.read((char*) &Q_prime_size_, sizeof(Q_prime_size_));
 
             is.read((char*) &Q_size_, sizeof(Q_size_));
+
+            is.read((char*) &depth_, sizeof(depth_)); // @company CipherFlow
 
             is.read((char*) &d_, sizeof(d_));
 
@@ -586,106 +598,6 @@ namespace heongpu
         }
     }
 
-    /**
-     * @company CipherFlow
-     */
-    __host__
-    Galoiskey<Scheme::CKKS>::Galoiskey(HEContext<Scheme::CKKS> context,
-                                        const ExecutionOptions& options)
-    {
-        if (!context || !context->context_generated_)
-        {
-            throw std::invalid_argument("HEContext is not generated!");
-        }
-
-        scheme_ = context->scheme_;
-        key_type = context->keyswitching_type_;
-        int n_power = context->n_power;
-        ring_size = context->n;
-        Q_prime_size_ = context->Q_prime_size;
-        Q_size_ = context->Q_size;
-
-        storage_type_ = options.storage_;
-
-        customized = false;
-
-        group_order_ = 5;
-
-        switch (static_cast<int>(context->keyswitching_type_))
-        {
-            case 1: // KEYSWITCHING_METHOD_I
-            {
-                galoiskey_size_ = 2 * Q_size_ * Q_prime_size_ * ring_size;
-
-                int galois = 0;
-                for (int i = 0; i < n_power-1; i++)
-                {
-                    int power = pow(2, i);
-                    galois =
-                        steps_to_galois_elt(power, ring_size, group_order_);
-                    galois_elt[power] = galois;
-                }
-                for (int i = 0; i < n_power-2; i++)
-                {
-                    int power = pow(2, i);
-                    galois =
-                        steps_to_galois_elt((-power), ring_size, group_order_);
-                    galois_elt[(-power)] = galois;
-                    
-                }
-            }
-            break;
-            case 2: // KEYSWITCHING_METHOD_II
-            {
-                for (int i = 0; i < n_power-1; i++)
-                {
-                    int power = pow(2, i);
-                    galois_elt[power] =
-                        steps_to_galois_elt(power, ring_size, group_order_);
-                }
-                for (int i = 0; i < n_power-2; i++)
-                {
-                    int power = pow(2, i);
-                    galois_elt[(-power)] =
-                        steps_to_galois_elt((-power), ring_size, group_order_);
-                }
-
-                galois_elt_zero =
-                    steps_to_galois_elt(0, ring_size, group_order_);
-
-                d_ = context->d_leveled->operator[](0);
-                galoiskey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
-            }
-            break;
-            case 3: // KEYSWITCHING_METHOD_III
-                throw std::invalid_argument(
-                    "Galoiskey does not support KEYSWITCHING_METHOD_III");
-                break;
-            default:
-                throw std::invalid_argument("Invalid Key Switching Type");
-                break;
-        }
-
-        if (storage_type_ == storage_type::HOST)
-        {
-            for (const auto& galois : galois_elt)
-            {
-                host_location_[galois.second] =
-                    HostVector<Data64>(galoiskey_size_);
-            }
-
-            zero_host_location_ = HostVector<Data64>(galoiskey_size_);
-        } else {
-             for (const auto& galois : galois_elt)
-            {
-                device_location_[galois.second] =
-                    DeviceVector<Data64>(galoiskey_size_, options.stream_);
-            }
-
-            zero_device_location_ = DeviceVector<Data64>(galoiskey_size_, options.stream_);
-        }
-    }
-
     __host__ Galoiskey<Scheme::CKKS>::Galoiskey(HEContext<Scheme::CKKS> context,
                                                 std::vector<int>& shift_vec)
     {
@@ -796,13 +708,19 @@ namespace heongpu
     __host__
     Galoiskey<Scheme::CKKS>::Galoiskey(HEContext<Scheme::CKKS> context,
                                        std::vector<uint32_t>& galois_elts,
+                                       int level,
                                        const ExecutionOptions& options)
     {
         if (!context || !context->context_generated_)
         {
             throw std::invalid_argument("HEContext is not generated!");
         }
+        if ((level < 0) || (level >= context->Q_size))
+        {
+            throw std::invalid_argument("Invalid galois key level!");
+        }
 
+        context_ = context;
         scheme_ = context->scheme_;
         key_type = context->keyswitching_type_;
 
@@ -828,10 +746,12 @@ namespace heongpu
             break;
             case 2: // KEYSWITCHING_METHOD_II
             {
-                d_ = context->d_leveled->operator[](0);
+                depth_ = Q_size_ - (level + 1);
+                d_ = context->d_leveled->operator[](depth_);
+                int current_Q_prime_size = Q_prime_size_ - depth_;
                 galois_elt_zero =
                     steps_to_galois_elt(0, ring_size, group_order_);
-                galoiskey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+                galoiskey_size_ = 2 * d_ * current_Q_prime_size * ring_size;
                 custom_galois_elt = galois_elts;
             }
             break;
@@ -961,6 +881,8 @@ namespace heongpu
 
             os.write((char*) &Q_size_, sizeof(Q_size_));
 
+            os.write((char*) &depth_, sizeof(depth_)); // @company CipherFlow
+
             os.write((char*) &d_, sizeof(d_));
 
             os.write((char*) &customized, sizeof(customized));
@@ -1068,6 +990,8 @@ namespace heongpu
             is.read((char*) &Q_prime_size_, sizeof(Q_prime_size_));
 
             is.read((char*) &Q_size_, sizeof(Q_size_));
+
+            is.read((char*) &depth_, sizeof(depth_)); // @company CipherFlow
 
             is.read((char*) &d_, sizeof(d_));
 
@@ -1201,13 +1125,19 @@ namespace heongpu
      */
     __host__
     Switchkey<Scheme::CKKS>::Switchkey(HEContext<Scheme::CKKS> context,
+                                        int level,
                                         const ExecutionOptions& options)
     {
         if (!context || !context->context_generated_)
         {
             throw std::invalid_argument("HEContext is not generated!");
         }
+        if ((level < 0) || (level >= context->Q_size))
+        {
+            throw std::invalid_argument("Invalid switch key level!");
+        }
 
+        context_ = context;
         scheme_ = context->scheme_;
         key_type = context->keyswitching_type_;
 
@@ -1226,8 +1156,10 @@ namespace heongpu
             break;
             case 2: // KEYSWITCHING_METHOD_II
             {
-                d_ = context->d_leveled->operator[](0);
-                switchkey_size_ = 2 * d_ * Q_prime_size_ * ring_size;
+                depth_ = Q_size_ - (level + 1);
+                d_ = context->d_leveled->operator[](depth_);
+                int current_Q_prime_size = Q_prime_size_ - depth_;
+                switchkey_size_ = 2 * d_ * current_Q_prime_size * ring_size;
             }
             break;
             case 3: // KEYSWITCHING_METHOD_III Galoiskey
@@ -1309,6 +1241,8 @@ namespace heongpu
 
             os.write((char*) &Q_size_, sizeof(Q_size_));
 
+            os.write((char*) &depth_, sizeof(depth_)); // @company CipherFlow
+
             os.write((char*) &d_, sizeof(d_));
 
             os.write((char*) &storage_type_, sizeof(storage_type_));
@@ -1356,6 +1290,8 @@ namespace heongpu
             is.read((char*) &Q_prime_size_, sizeof(Q_prime_size_));
 
             is.read((char*) &Q_size_, sizeof(Q_size_));
+
+            is.read((char*) &depth_, sizeof(depth_)); // @company CipherFlow
 
             is.read((char*) &d_, sizeof(d_));
 
