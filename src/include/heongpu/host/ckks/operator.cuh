@@ -759,7 +759,7 @@ namespace heongpu
                                 {
                                     if ((!input2_.is_ringt_) && (input2_.size() <
                                         (context_->n * current_decomp_count)) || (input2_.is_ringt_) && (input2_.size() <
-                                        context_->n)) // @company CipherFlow
+                                        (slot_count_ * 2))) // @company CipherFlow
                                     {
                                         throw std::invalid_argument(
                                             "Invalid Plaintext size!");
