@@ -42,12 +42,13 @@ namespace primitive
 
         if (cfg.n_power <= 16)
         {
-            ntt::phantom_ntt_inplace_batched(
-                data, cfg, batch_size, mod_count, tables);
+            ntt::phantom_ntt_inplace(
+                data, cfg, batch_size, mod_count, tables, true);
             return;
         }
 
-        ntt::phantom_ntt_inplace(data, cfg, batch_size, mod_count, tables);
+        ntt::phantom_ntt_inplace(
+            data, cfg, batch_size, mod_count, tables, false);
     }
 
     void NTT_modulus_ordered_inplace(
@@ -69,13 +70,30 @@ namespace primitive
 
         if (cfg.n_power < 16)
         {
-            ntt::phantom_ntt_modulus_ordered_inplace_batched(
-                data, cfg, batch_size, mod_count, order, tables);
+            ntt::phantom_ntt_modulus_ordered_inplace(
+                data, cfg, batch_size, mod_count, order, tables, true);
             return;
         }
 
         ntt::phantom_ntt_modulus_ordered_inplace(
-            data, cfg, batch_size, mod_count, order, tables);
+            data, cfg, batch_size, mod_count, order, tables, false);
+    }
+
+    void NTT_modmajor_inplace(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int current_qp,
+        int current_q,
+        int first_q_count,
+        int decomp_count,
+        int* group_sizes,
+        int* group_locations,
+        const std::shared_ptr<PhantomNttTables>& tables,
+        bool skip_excluded)
+    {
+        ntt::phantom_ntt_modmajor_inplace(
+            data, cfg, current_qp, current_q, first_q_count, decomp_count,
+            group_sizes, group_locations, tables, skip_excluded);
     }
 
     void INTT_inplace(
@@ -96,12 +114,13 @@ namespace primitive
 
         if (cfg.n_power <= 16)
         {
-            ntt::phantom_intt_inplace_batched(
-                data, cfg, batch_size, mod_count, tables);
+            ntt::phantom_intt_inplace(
+                data, cfg, batch_size, mod_count, tables, true);
             return;
         }
 
-        ntt::phantom_intt_inplace(data, cfg, batch_size, mod_count, tables);
+        ntt::phantom_intt_inplace(
+            data, cfg, batch_size, mod_count, tables, false);
     }
 
     void INTT(
@@ -123,12 +142,13 @@ namespace primitive
 
         if (cfg.n_power <= 16)
         {
-            ntt::phantom_intt_batched(
-                input, output, cfg, batch_size, mod_count, tables);
+            ntt::phantom_intt(
+                input, output, cfg, batch_size, mod_count, tables, true);
             return;
         }
 
-        ntt::phantom_intt(input, output, cfg, batch_size, mod_count, tables);
+        ntt::phantom_intt(
+            input, output, cfg, batch_size, mod_count, tables, false);
     }
 
     void INTT_modulus_ordered_inplace(
@@ -150,13 +170,13 @@ namespace primitive
 
         if (cfg.n_power < 16)
         {
-            ntt::phantom_intt_modulus_ordered_inplace_batched(
-                data, cfg, batch_size, mod_count, order, tables);
+            ntt::phantom_intt_modulus_ordered_inplace(
+                data, cfg, batch_size, mod_count, order, tables, true);
             return;
         }
 
         ntt::phantom_intt_modulus_ordered_inplace(
-            data, cfg, batch_size, mod_count, order, tables);
+            data, cfg, batch_size, mod_count, order, tables, false);
     }
 
     void INTT_poly_ordered_inplace(

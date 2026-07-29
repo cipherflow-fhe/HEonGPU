@@ -9,6 +9,7 @@
 #include <heongpu/host/ckks/cosine_approx.cuh>
 #include <heongpu/primitive/fft.cuh>
 #include <heongpu/primitive/ntt.cuh>
+#include <heongpu/primitive/switchkey.cuh>
 
 namespace heongpu
 {
@@ -359,7 +360,8 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            primitive::NTT_inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
+                primitive::NTT_inplace( // @company CipherFlow
+                ringt_data.data(), context_->ntt_table_slot_->data(),
                 context_->modulus_->data(), cfg_ntt, current_decomp_count,
                 current_decomp_count, context_->phantom_ntt_tables_slot_);
 
@@ -541,7 +543,7 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            primitive::NTT_inplace(
+                primitive::NTT_inplace( // @company CipherFlow
                 ringt_data.data(), context_->ntt_table_slot_->data(),
                 context_->modulus_->data(), cfg_ntt, current_decomp_count,
                 current_decomp_count, context_->phantom_ntt_tables_slot_);
@@ -985,7 +987,7 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            primitive::NTT_inplace(
+                primitive::NTT_inplace( // @company CipherFlow
                 ringt_data.data(), context_->ntt_table_slot_->data(),
                 context_->modulus_->data(), cfg_ntt, current_decomp_count,
                 current_decomp_count, context_->phantom_ntt_tables_slot_);
@@ -1072,7 +1074,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::INTT_inplace(
+            primitive::INTT_inplace( // @company CipherFlow
             input1.data() + (current_decomp_count << (context_->n_power + 1)),
             context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
             current_decomp_count, current_decomp_count,
@@ -1110,7 +1112,7 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp1_relin, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
@@ -1150,7 +1152,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data() + first_decomp_count,
             .stream = stream};
 
-        primitive::INTT_poly_ordered_inplace(
+            primitive::INTT_poly_ordered_inplace( // @company CipherFlow
             temp2_relin,
             context_->intt_table_->data() +
                 (first_decomp_count << context_->n_power),
@@ -1166,9 +1168,10 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(temp1_relin, context_->ntt_table_->data(),
-                                context_->modulus_->data(), cfg_ntt,
-                                2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+        primitive::NTT_inplace( // @company CipherFlow
+            temp1_relin, context_->ntt_table_->data(),
+            context_->modulus_->data(), cfg_ntt,
+            2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
         divide_round_lastq_leveled_stage_two_kernel<<<
             dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
@@ -1208,7 +1211,7 @@ namespace heongpu
             counter--;
         }
 
-        primitive::INTT_inplace(
+        primitive::INTT_inplace( // @company CipherFlow
             input1.data() + (current_decomp_count << (context_->n_power + 1)),
             context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
             current_decomp_count, current_decomp_count,
@@ -1251,7 +1254,7 @@ namespace heongpu
             .zero_padding = false,
             .stream = stream};
 
-        primitive::NTT_modulus_ordered_inplace(
+            primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp1_relin, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
@@ -1288,7 +1291,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp2_relin, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -1304,9 +1307,10 @@ namespace heongpu
                       context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(temp1_relin, context_->ntt_table_->data(),
-                                context_->modulus_->data(), cfg_ntt,
-                                2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+        primitive::NTT_inplace( // @company CipherFlow
+            temp1_relin, context_->ntt_table_->data(),
+            context_->modulus_->data(), cfg_ntt,
+            2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
         addition<<<dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
                    stream>>>(temp1_relin, input1.data(), input1.data(),
@@ -1319,7 +1323,7 @@ namespace heongpu
      */
     __host__ void
     HEOperator<Scheme::CKKS>::relinearize_external_product_method2_ckks(
-        Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output, 
+        Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output,
         Relinkey<Scheme::CKKS>& relin_key, const cudaStream_t stream)
     {
         int first_rns_mod_count = context_->Q_prime_size;
@@ -1333,7 +1337,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = context_->n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,   
+            .ntt_layout = gpuntt::PerPolynomial,
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = context_->n_inverse_->data(),
@@ -1347,10 +1351,10 @@ namespace heongpu
             counter--;
         }
 
-        primitive::INTT_inplace(input1.data() +
-                                    (current_decomp_count << (context_->n_power + 1)),
-                                context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
-                                current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+        primitive::INTT_inplace( // @company CipherFlow
+            input1.data() + (current_decomp_count << (context_->n_power + 1)),
+            context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
+            current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
         DeviceVector<Data64> temp_relin(
             (context_->n * context_->Q_size * context_->Q_prime_size) + (2 * context_->n * context_->Q_prime_size), stream);
@@ -1376,12 +1380,12 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = context_->n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,   
+            .ntt_layout = gpuntt::PerPolynomial,
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
 
-        primitive::NTT_modulus_ordered_inplace(
+            primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp1_relin, context_->ntt_table_->data(), context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -1412,7 +1416,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp2_relin, context_->intt_table_->data(), context_->modulus_->data(), cfg_intt,
             2 * current_rns_mod_count, current_rns_mod_count,
             new_prime_locations + location, context_->phantom_ntt_tables_);
@@ -1425,9 +1429,10 @@ namespace heongpu
             first_decomp_count, context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(temp1_relin, context_->ntt_table_->data(),
-                                context_->modulus_->data(), cfg_ntt,
-                                2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
+        primitive::NTT_inplace( // @company CipherFlow
+            temp1_relin, context_->ntt_table_->data(),
+            context_->modulus_->data(), cfg_ntt,
+            2 * current_decomp_count, current_decomp_count, context_->phantom_ntt_tables_);
 
         addition<<<dim3((context_->n >> 8), current_decomp_count, 2), 256, 0, stream>>>(
             temp1_relin, input1.data(), output_memory.data(), context_->modulus_->data(),
@@ -1477,8 +1482,7 @@ namespace heongpu
         Data64* temp1_rescale = temp_rescale.data();
         Data64* temp2_rescale =
             temp1_rescale + (2 * context_->n * context_->Q_prime_size);
-
-        primitive::INTT_poly_ordered_inplace(
+        primitive::INTT_poly_ordered_inplace( // @company CipherFlow
             input1.data(),
             context_->intt_table_->data() +
                 ((current_decomp_count - 1) << context_->n_power),
@@ -1496,9 +1500,10 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(temp1_rescale, context_->ntt_table_->data(),
-                                context_->modulus_->data(), cfg_ntt,
-                                2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
+        primitive::NTT_inplace( // @company CipherFlow
+            temp1_rescale, context_->ntt_table_->data(),
+            context_->modulus_->data(), cfg_ntt,
+            2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
 
         move_cipher_leveled_kernel<<<dim3((context_->n >> 8),
                                           current_decomp_count - 1, 2),
@@ -1541,7 +1546,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
             .n_power = context_->n_power,
             .ntt_type = gpuntt::INVERSE,
-            .ntt_layout = gpuntt::PerPolynomial,   
+            .ntt_layout = gpuntt::PerPolynomial,
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .mod_inverse = context_->n_inverse_->data() + (current_decomp_count - 1),
@@ -1550,7 +1555,7 @@ namespace heongpu
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
             .n_power = context_->n_power,
             .ntt_type = gpuntt::FORWARD,
-            .ntt_layout = gpuntt::PerPolynomial,   
+            .ntt_layout = gpuntt::PerPolynomial,
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = stream};
@@ -1565,11 +1570,13 @@ namespace heongpu
         }
 
         DeviceVector<Data64> temp_rescale(
-            (2 * context_->n * context_->Q_prime_size) + (2 * context_->n * context_->Q_prime_size), stream);
+            (2 * context_->n * context_->Q_prime_size) +
+                (2 * context_->n * context_->Q_prime_size),
+            stream);
         Data64* temp1_rescale = temp_rescale.data();
-        Data64* temp2_rescale = temp1_rescale + (2 * context_->n * context_->Q_prime_size);
-
-        primitive::INTT_poly_ordered_inplace(
+        Data64* temp2_rescale =
+            temp1_rescale + (2 * context_->n * context_->Q_prime_size);
+        primitive::INTT_poly_ordered_inplace( // @company CipherFlow
             input1.data(),
             context_->intt_table_->data() + ((current_decomp_count - 1) << context_->n_power),
             context_->modulus_->data() + (current_decomp_count - 1), cfg_intt, 2, 1,
@@ -1584,8 +1591,7 @@ namespace heongpu
             current_decomp_count - 1, current_decomp_count - 1);
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
-
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             temp1_rescale, context_->ntt_table_->data(), context_->modulus_->data(), cfg_ntt,
             2 * (current_decomp_count - 1), (current_decomp_count - 1), context_->phantom_ntt_tables_);
 
@@ -1595,7 +1601,7 @@ namespace heongpu
 
         divide_round_lastq_rescale_kernel<<<
             dim3((context_->n >> 8), current_decomp_count - 1, 2), 256, 0, stream>>>(
-            temp1_rescale, temp2_rescale, output_memory.data(), context_->modulus_->data(),
+            temp1_rescale, temp2_rescale, output_memory.data(), context_->modulus_->data(), // @company CipherFlow
             context_->rescaled_last_q_modinv_->data() + location, context_->n_power,
             current_decomp_count - 1);
 
@@ -1826,8 +1832,7 @@ namespace heongpu
             .zero_padding = false,
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
-
-        primitive::INTT(
+        primitive::INTT( // @company CipherFlow
             input1.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
             2 * current_decomp_count, current_decomp_count,
@@ -1857,7 +1862,7 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
@@ -1891,7 +1896,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp3_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -1909,7 +1914,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             output_memory.data(), context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -1974,7 +1979,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::INTT(
+            primitive::INTT( // @company CipherFlow
             input1.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
             2 * current_decomp_count, current_decomp_count,
@@ -2017,7 +2022,7 @@ namespace heongpu
             context_->prime_location_leveled->data() + location);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
@@ -2056,7 +2061,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp4_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -2074,7 +2079,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             output_memory.data(), context_->ntt_table_->data(),
                                 context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2133,7 +2138,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::INTT(
+            primitive::INTT( // @company CipherFlow
             input1.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
             2 * current_decomp_count, current_decomp_count,
@@ -2162,7 +2167,7 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
@@ -2203,7 +2208,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data() + first_decomp_count,
             .stream = stream};
 
-        primitive::INTT_poly_ordered_inplace(
+            primitive::INTT_poly_ordered_inplace( // @company CipherFlow
             temp3_rotation,
             context_->intt_table_->data() +
                 (first_decomp_count << context_->n_power),
@@ -2219,14 +2224,14 @@ namespace heongpu
 
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
             context_->phantom_ntt_tables_);
 
         // TODO: Merge with previous one
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             temp1_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count, current_decomp_count,
@@ -2287,7 +2292,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::INTT(
+            primitive::INTT( // @company CipherFlow
             input1.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
             2 * current_decomp_count, current_decomp_count,
@@ -2336,7 +2341,7 @@ namespace heongpu
             context_->prime_location_leveled->data() + location);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
@@ -2374,7 +2379,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp4_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -2390,7 +2395,7 @@ namespace heongpu
             first_decomp_count, context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2398,7 +2403,7 @@ namespace heongpu
 
         // TODO: Fused the redundant kernels
         // TODO: Merge with previous one
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             temp1_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count, current_decomp_count,
@@ -2453,7 +2458,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::INTT(
+            primitive::INTT( // @company CipherFlow
             input1.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
             2 * current_decomp_count, current_decomp_count,
@@ -2483,7 +2488,7 @@ namespace heongpu
             location += counter;
             counter--;
         }
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp2_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             current_decomp_count * current_rns_mod_count, current_rns_mod_count,
@@ -2517,7 +2522,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp3_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -2535,7 +2540,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             output_memory.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2589,7 +2594,7 @@ namespace heongpu
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
 
-        primitive::INTT(
+            primitive::INTT( // @company CipherFlow
             input1.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
             2 * current_decomp_count, current_decomp_count,
@@ -2632,7 +2637,7 @@ namespace heongpu
             context_->prime_location_leveled->data() + location);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_modulus_ordered_inplace(
+        primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
             temp3_rotation, context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             context_->d_leveled->operator[](input1.depth_) *
@@ -2671,7 +2676,7 @@ namespace heongpu
             HEONGPU_CUDA_CHECK(cudaGetLastError());
         }
 
-        primitive::INTT_modulus_ordered_inplace(
+        primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
             temp4_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt, 2 * current_rns_mod_count,
             current_rns_mod_count, new_prime_locations + location,
@@ -2689,7 +2694,7 @@ namespace heongpu
             context_->P_size);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             output_memory.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * current_decomp_count, current_decomp_count,
@@ -2914,10 +2919,10 @@ namespace heongpu
         int gap = context_->n >> (log_slot_count_local + 1);
         // @company CipherFlow end ---
 
-        double fix = scale / static_cast<double>(slot_count); // @company CipherFlow 
+        double fix = scale / static_cast<double>(slot_count); // @company CipherFlow
 
         gpufft::fft_configuration<Float64> cfg_ifft{};
-        cfg_ifft.n_power = log_slot_count_local; // @company CipherFlow 
+        cfg_ifft.n_power = log_slot_count_local; // @company CipherFlow
         cfg_ifft.fft_type = gpufft::type::INVERSE;
         cfg_ifft.mod_inverse = Complex64(fix, 0.0);
         cfg_ifft.stream = 0;
@@ -2925,14 +2930,14 @@ namespace heongpu
         primitive::special_fft(input, special_ifft_roots_table_->data(), // @company CipherFlow
                                cfg_ifft, 1);
 
-        // @company CipherFlow 
+        // @company CipherFlow
         // Generate bit-reverse table for the requested slot_count.
         std::vector<int> bit_rev(slot_count);
         for (int i = 0; i < slot_count; i++)
             bit_rev[i] = gpuntt::bitreverse(i, log_slot_count_local);
         DeviceVector<int> reverse_order_local(bit_rev);
 
-        // @company CipherFlow 
+        // @company CipherFlow
         // When gap > 1 (sparse), use a temp compact buffer; otherwise write directly.
         DeviceVector<Data64> compact_buf;
         Data64* compact = output;
@@ -2949,24 +2954,24 @@ namespace heongpu
 
         Root64* ntt_table_ptr = (log_slot_count_local == log_slot_count_)
                                    ? context_->ntt_table_slot_->data()
-                                   : context_->ntt_table_dslot_->data(); // @company CipherFlow 
-                                   
+                                   : context_->ntt_table_dslot_->data(); // @company CipherFlow
+
         const auto& phantom_table = (log_slot_count_local == log_slot_count_)
                 ? context_->phantom_ntt_tables_slot_
                 : context_->phantom_ntt_tables_dslot_;
 
         gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
-            .n_power = log_sparse_n, // @company CipherFlow 
+            .n_power = log_sparse_n, // @company CipherFlow
             .ntt_type = gpuntt::FORWARD,
             .ntt_layout = gpuntt::PerPolynomial,
             .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
             .zero_padding = false,
             .stream = 0};
 
-        primitive::NTT_inplace(
+            primitive::NTT_inplace( // @company CipherFlow
             compact, ntt_table_ptr, context_->modulus_->data(), cfg_ntt,
             rns_count, rns_count, phantom_table);
-        // @company CipherFlow 
+        // @company CipherFlow
         if (gap > 1)
         {
             sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), rns_count, 1), 256>>>(
@@ -3009,7 +3014,7 @@ namespace heongpu
         Data64* compact = output;
         if (gap_ > 1)
         {
-            compact_buf = DeviceVector<Data64>((1 << log_sparse_n) * context_->Q_size, stream); 
+            compact_buf = DeviceVector<Data64>((1 << log_sparse_n) * context_->Q_size, stream);
             compact = compact_buf.data();
         }
 
@@ -3026,7 +3031,7 @@ namespace heongpu
             .zero_padding = false,
             .stream = stream}; // @company CipherFlow
 
-        primitive::NTT_inplace(
+            primitive::NTT_inplace( // @company CipherFlow
             compact, context_->ntt_table_slot_->data(), context_->modulus_->data(),
             cfg_ntt, context_->Q_size, context_->Q_size,
             context_->phantom_ntt_tables_slot_);
@@ -3505,7 +3510,7 @@ namespace heongpu
             int current_rns_mod_count = Q_prime_size - current_level;
             int pql_count = current_decomp_count + P_size;
 
-            std::sort(diags_matrices_bsgs_rot_n2_[m].begin(), 
+            std::sort(diags_matrices_bsgs_rot_n2_[m].begin(),
                       diags_matrices_bsgs_rot_n2_[m].end());
 
             int n1 = diags_matrices_bsgs_rot_n2_[m].size();
@@ -3579,7 +3584,7 @@ namespace heongpu
             // temp0: INTT of ciphertext (c0_coeff || c1_coeff) in Q_l coeff
             DeviceVector<Data64> temp0(2 * n * Q_size, stream);
             {
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     result.data(), temp0.data(), context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt,
                     2 * current_decomp_count, current_decomp_count,
@@ -3592,10 +3597,12 @@ namespace heongpu
                                        stream);
 
             {
-                base_conversion_DtoQtilde_relin_leveled_kernel<<<
-                    dim3((n >> 8), d_level, 1), 256, 0, stream>>>(
+                primitive::base_conversion_DtoQtilde_relin_leveled_ntt( // @company CipherFlow
                     temp0.data() + (current_decomp_count << context_->n_power),
-                    temp3.data(), context_->modulus_->data(),
+                    result.data() +
+                        (current_decomp_count << context_->n_power),
+                    temp3.data(), context_->ntt_table_->data(),
+                    context_->modulus_->data(), cfg_ntt,
                     context_->base_change_matrix_D_to_Qtilda_leveled
                         ->operator[](current_level)
                         .data(),
@@ -3609,18 +3616,11 @@ namespace heongpu
                     context_->I_location_leveled->operator[](current_level)
                         .data(),
                     context_->n_power, d_level, current_rns_mod_count,
-                    current_decomp_count, current_level,
-                    context_->prime_location_leveled->data() + location);
+                    current_decomp_count, Q_size, current_level,
+                    context_->prime_location_leveled->data() + location,
+                    new_prime_locations + location, true,
+                    context_->phantom_ntt_tables_, stream);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
-            }
-
-            {
-                primitive::NTT_modulus_ordered_inplace(
-                    temp3.data(), context_->ntt_table_->data(),
-                    context_->modulus_->data(), cfg_ntt,
-                    d_level * current_rns_mod_count, current_rns_mod_count,
-                    new_prime_locations + location,
-                    context_->phantom_ntt_tables_);
             }
 
             int iteration_count_1 = d_level / 4;
@@ -3685,30 +3685,29 @@ namespace heongpu
                 {
                     if (galois_key.storage_type_ == storage_type::DEVICE)
                     {
-                        keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                            dim3((n >> 8), current_rns_mod_count, 1), 256, 0,
-                            stream>>>(
+                        primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
                             temp3.data(),
                             galois_key.device_location_[galois_elt].data(),
                             temp4.data(), context_->modulus_->data(),
                             first_rns_mod_count, current_decomp_count,
                             current_rns_mod_count, iteration_count_1,
                             iteration_count_2, current_level,
-                            context_->n_power);
+                            context_->n_power, context_->phantom_ntt_tables_,
+                            stream);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                     else
                     {
                         DeviceVector<Data64> key_location(
                             galois_key.host_location_[galois_elt], stream);
-                        keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                            dim3((n >> 8), current_rns_mod_count, 1), 256, 0,
-                            stream>>>(temp3.data(), key_location.data(),
-                                      temp4.data(), context_->modulus_->data(),
-                                      first_rns_mod_count, current_decomp_count,
-                                      current_rns_mod_count, iteration_count_1,
-                                      iteration_count_2, current_level,
-                                      context_->n_power);
+                        primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
+                            temp3.data(), key_location.data(),
+                            temp4.data(), context_->modulus_->data(),
+                            first_rns_mod_count, current_decomp_count,
+                            current_rns_mod_count, iteration_count_1,
+                            iteration_count_2, current_level,
+                            context_->n_power, context_->phantom_ntt_tables_,
+                            stream);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                 }
@@ -3805,7 +3804,7 @@ namespace heongpu
                 // First INTT u1 from PQ_l NTT -> PQ_l coeff
                 // u1 is at u_pql + pql_count * n
                 {
-                    primitive::INTT_modulus_ordered_inplace(
+                    primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
                         u_pql.data() + (pql_count * n),
                         context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt, pql_count,
@@ -3831,10 +3830,10 @@ namespace heongpu
 
                 // Decompose u1_Q -> PQ_l coeff, then NTT
                 {
-                    base_conversion_DtoQtilde_relin_leveled_kernel<<<
-                        dim3((n >> 8), d_level, 1), 256, 0, stream>>>(
-                        u1_Q.data(), temp3_gs.data(),
-                        context_->modulus_->data(),
+                    primitive::base_conversion_DtoQtilde_relin_leveled_ntt( // @company CipherFlow
+                        u1_Q.data(), nullptr, temp3_gs.data(),
+                        context_->ntt_table_->data(), context_->modulus_->data(),
+                        cfg_ntt,
                         context_->base_change_matrix_D_to_Qtilda_leveled
                             ->operator[](current_level)
                             .data(),
@@ -3848,18 +3847,11 @@ namespace heongpu
                         context_->I_location_leveled->operator[](current_level)
                             .data(),
                         context_->n_power, d_level, current_rns_mod_count,
-                        current_decomp_count, current_level,
-                        context_->prime_location_leveled->data() + location);
+                        current_decomp_count, Q_size, current_level,
+                        context_->prime_location_leveled->data() + location,
+                        new_prime_locations + location, false,
+                        context_->phantom_ntt_tables_, stream);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
-                }
-
-                {
-                    primitive::NTT_modulus_ordered_inplace(
-                        temp3_gs.data(), context_->ntt_table_->data(),
-                        context_->modulus_->data(), cfg_ntt,
-                        d_level * current_rns_mod_count, current_rns_mod_count,
-                        new_prime_locations + location,
-                        context_->phantom_ntt_tables_);
                 }
 
                 // MultSum: decomposed u1 × giant-step key -> (gs0, gs1) in PQ_l
@@ -3867,31 +3859,29 @@ namespace heongpu
                 {
                     if (galois_key.storage_type_ == storage_type::DEVICE)
                     {
-                        keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                            dim3((n >> 8), current_rns_mod_count, 1), 256, 0,
-                            stream>>>(
+                        primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
                             temp3_gs.data(),
                             galois_key.device_location_[galois_elt_gs].data(),
                             temp4_gs.data(), context_->modulus_->data(),
                             first_rns_mod_count, current_decomp_count,
                             current_rns_mod_count, iteration_count_1,
                             iteration_count_2, current_level,
-                            context_->n_power);
+                            context_->n_power, context_->phantom_ntt_tables_,
+                            stream);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                     else
                     {
                         DeviceVector<Data64> key_location(
                             galois_key.host_location_[galois_elt_gs], stream);
-                        keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                            dim3((n >> 8), current_rns_mod_count, 1), 256, 0,
-                            stream>>>(temp3_gs.data(), key_location.data(),
-                                      temp4_gs.data(),
-                                      context_->modulus_->data(),
-                                      first_rns_mod_count, current_decomp_count,
-                                      current_rns_mod_count, iteration_count_1,
-                                      iteration_count_2, current_level,
-                                      context_->n_power);
+                        primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
+                            temp3_gs.data(), key_location.data(),
+                            temp4_gs.data(), context_->modulus_->data(),
+                            first_rns_mod_count, current_decomp_count,
+                            current_rns_mod_count, iteration_count_1,
+                            iteration_count_2, current_level,
+                            context_->n_power, context_->phantom_ntt_tables_,
+                            stream);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                 }
@@ -3929,7 +3919,7 @@ namespace heongpu
             // ============================================================
             // INTT accumulator from PQ_l NTT -> PQ_l coeff
             {
-                primitive::INTT_modulus_ordered_inplace(
+                primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
                     gs_accum.data(), context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt, 2 * pql_count,
                     pql_count, new_prime_locations + location,
@@ -3952,7 +3942,7 @@ namespace heongpu
 
             // NTT final_ct -> Q_l NTT domain
             {
-                primitive::NTT_inplace(
+                primitive::NTT_inplace( // @company CipherFlow
                     final_ct.data(), context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     2 * current_decomp_count, current_decomp_count,
@@ -4606,7 +4596,7 @@ namespace heongpu
             cipher_after_ks,
             [&](Ciphertext<Scheme::CKKS>& cipher_temp)
             {
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     cipher_after_ks.data(), cipher_intt_poly.data(),
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2, 1, context_->phantom_ntt_tables_);
@@ -4630,7 +4620,7 @@ namespace heongpu
             context_->modulus_->data(), context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -4909,7 +4899,7 @@ namespace heongpu
         std::unordered_map<int, Ciphertext<Scheme::CKKS>>& cipher, int power,
         Relinkey<Scheme::CKKS>& relin_key, const ExecutionOptions& options)
     {
-       if (cipher.count(power)) 
+       if (cipher.count(power))
        {
             return;
         }
@@ -4923,7 +4913,7 @@ namespace heongpu
             b = power / 2;
         }
         else
-        {            
+        {
             int k = int(std::ceil(std::log2(power))) - 1;
             a = (1 << k) - 1;
             b = power + 1 - (1 << k);
@@ -4936,38 +4926,38 @@ namespace heongpu
 
         gen_power(cipher, a, relin_key, options);
         gen_power(cipher, b, relin_key, options);
-        
+
         int x = cipher[a].level();
         int y = cipher[b].level();
-        if (x != y) 
+        if (x != y)
         {
             Ciphertext<Scheme::CKKS> tmp = cipher[a];
             Ciphertext<Scheme::CKKS> tmp1 = cipher[b];
 
-            if (x < y) 
+            if (x < y)
             {
-                for (int i = x; i < y; i++) 
+                for (int i = x; i < y; i++)
                 {
                     mod_drop_inplace(tmp1, options);
                 }
-            } 
-            else 
+            }
+            else
             {
-                for (int i = y; i < x; i++) 
+                for (int i = y; i < x; i++)
                 {
                     mod_drop_inplace(tmp, options);
                 }
             }
             multiply(tmp, tmp1, cipher[power], options);
-        } 
-        else 
+        }
+        else
         {
             multiply(cipher[a], cipher[b], cipher[power], options);
         }
 
         relinearize_inplace(cipher[power], relin_key, options);
         rescale_inplace(cipher[power], options);
-        
+
         if (eval_mod_config_.poly_type_ == PolyType::CHEBYSHEV)
         {
             add_inplace(cipher[power], cipher[power], options);
@@ -5017,7 +5007,7 @@ namespace heongpu
     HEOperator<Scheme::CKKS>::evaluate_poly_from_polynomial_basis(
         double target_scale, int target_level, const Polynomial& pol,
         std::unordered_map<int, Ciphertext<Scheme::CKKS>>& powered_ciphers,
-        const ExecutionOptions& options) 
+        const ExecutionOptions& options)
     {
         Ciphertext<Scheme::CKKS> result =
             operator_ciphertext(0, options.stream_);
@@ -5050,7 +5040,7 @@ namespace heongpu
 
             DeviceVector<Data64> encoded_coeff_i(context_->Q_size
                                                  << context_->n_power,
-                                                 options.stream_); // @company CipherFlow 
+                                                 options.stream_); // @company CipherFlow
             quick_ckks_encoder_constant_complex(pol.coeffs_[i],
                                                 encoded_coeff_i.data(),
                                                 target_scale / xi_term.scale_,
@@ -5070,7 +5060,7 @@ namespace heongpu
 
             int a = result.level();
             int b = xi_term.level();
-            
+
             if (a != b)
             {
                 Ciphertext<Scheme::CKKS> tmp = xi_term;
@@ -5351,8 +5341,7 @@ namespace heongpu
                     .zero_padding = false,
                     .mod_inverse = context_->n_inverse_->data(),
                     .stream = stream};
-
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     first_cipher.data(), temp0_rotation,
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2 * current_decomp_count, current_decomp_count,
@@ -5382,7 +5371,7 @@ namespace heongpu
                     location += counter;
                     counter--;
                 }
-                primitive::NTT_modulus_ordered_inplace(
+                primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
                     temp2_rotation, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     current_decomp_count * current_rns_mod_count,
@@ -5420,7 +5409,7 @@ namespace heongpu
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
                 }
 
-                primitive::INTT_modulus_ordered_inplace(
+                primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
                     temp3_rotation, context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt,
                     2 * current_rns_mod_count, current_rns_mod_count,
@@ -5440,7 +5429,7 @@ namespace heongpu
                     context_->P_size);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                primitive::NTT_inplace(
+                primitive::NTT_inplace( // @company CipherFlow
                     result.data() + offset, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     2 * current_decomp_count, current_decomp_count,
@@ -5473,7 +5462,7 @@ namespace heongpu
                         .mod_inverse = context_->n_inverse_->data(),
                         .stream = stream};
 
-                    primitive::INTT(
+                        primitive::INTT( // @company CipherFlow
                         in_data, temp0_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
                         2 * current_decomp_count, current_decomp_count,
@@ -5504,7 +5493,7 @@ namespace heongpu
                         location += counter;
                         counter--;
                     }
-                    primitive::NTT_modulus_ordered_inplace(
+                    primitive::NTT_modulus_ordered_inplace( // @company CipherFlow
                         temp2_rotation, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         current_decomp_count * current_rns_mod_count,
@@ -5542,7 +5531,7 @@ namespace heongpu
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
 
-                    primitive::INTT_modulus_ordered_inplace(
+                    primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
                         temp3_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
                         2 * current_rns_mod_count, current_rns_mod_count,
@@ -5562,7 +5551,7 @@ namespace heongpu
                         context_->Q_size, context_->P_size);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    primitive::NTT_inplace(
+                    primitive::NTT_inplace( // @company CipherFlow
                         result.data() + offset, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         2 * current_decomp_count, current_decomp_count,
@@ -5612,7 +5601,6 @@ namespace heongpu
             .zero_padding = false,
             .mod_inverse = context_->n_inverse_->data(),
             .stream = stream};
-
         primitive::INTT(
             first_cipher.data(), temp0_rotation, context_->intt_table_->data(),
             context_->modulus_->data(), cfg_intt,
@@ -5793,7 +5781,7 @@ namespace heongpu
                     .mod_inverse = context_->n_inverse_->data(),
                     .stream = stream};
 
-                primitive::INTT(
+                    primitive::INTT( // @company CipherFlow
                     first_cipher.data(), temp0_rotation,
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2 * current_decomp_count, current_decomp_count,
@@ -5815,14 +5803,13 @@ namespace heongpu
                     counter--;
                 }
 
-                base_conversion_DtoQtilde_relin_leveled_kernel<<<
-                    dim3((context_->n >> 8),
-                         context_->d_leveled->operator[](first_cipher.depth_),
-                         1),
-                    256, 0, stream>>>(
+                primitive::base_conversion_DtoQtilde_relin_leveled_ntt( // @company CipherFlow
                     temp0_rotation +
                         (current_decomp_count << context_->n_power),
-                    temp3_rotation, context_->modulus_->data(),
+                    first_cipher.data() +
+                        (current_decomp_count << context_->n_power),
+                    temp3_rotation, context_->ntt_table_->data(),
+                    context_->modulus_->data(), cfg_ntt,
                     context_->base_change_matrix_D_to_Qtilda_leveled
                         ->
                         operator[](first_cipher.depth_)
@@ -5843,17 +5830,11 @@ namespace heongpu
                     context_->n_power,
                     context_->d_leveled->operator[](first_cipher.depth_),
                     current_rns_mod_count, current_decomp_count,
-                    first_cipher.depth_,
-                    context_->prime_location_leveled->data() + location);
+                    context_->Q_size, first_cipher.depth_,
+                    context_->prime_location_leveled->data() + location,
+                    new_prime_locations + location, true,
+                    context_->phantom_ntt_tables_, stream);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
-
-                primitive::NTT_modulus_ordered_inplace(
-                    temp3_rotation, context_->ntt_table_->data(),
-                    context_->modulus_->data(), cfg_ntt,
-                    context_->d_leveled->operator[](first_cipher.depth_) *
-                        current_rns_mod_count,
-                    current_rns_mod_count, new_prime_locations + location,
-                    context_->phantom_ntt_tables_);
 
                 // MultSum
                 // TODO: make it efficient
@@ -5863,34 +5844,32 @@ namespace heongpu
                     context_->d_leveled->operator[](first_cipher.depth_) % 4;
                 if (galois_key.storage_type_ == storage_type::DEVICE)
                 {
-                    keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                        dim3((context_->n >> 8), current_rns_mod_count, 1), 256,
-                        0, stream>>>(
+                    primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
                         temp3_rotation,
                         galois_key.device_location_[galois_elt].data(),
                         temp4_rotation, context_->modulus_->data(),
                         first_rns_mod_count, current_decomp_count,
                         current_rns_mod_count, iteration_count_1,
                         iteration_count_2, first_cipher.depth_,
-                        context_->n_power);
+                        context_->n_power, context_->phantom_ntt_tables_,
+                        stream);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
                 }
                 else
                 {
                     DeviceVector<Data64> key_location(
                         galois_key.host_location_[galois_elt], stream);
-                    keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                        dim3((context_->n >> 8), current_rns_mod_count, 1), 256,
-                        0, stream>>>(temp3_rotation, key_location.data(),
-                                     temp4_rotation, context_->modulus_->data(),
-                                     first_rns_mod_count, current_decomp_count,
-                                     current_rns_mod_count, iteration_count_1,
-                                     iteration_count_2, first_cipher.depth_,
-                                     context_->n_power);
+                    primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
+                        temp3_rotation, key_location.data(), temp4_rotation,
+                        context_->modulus_->data(), first_rns_mod_count,
+                        current_decomp_count, current_rns_mod_count,
+                        iteration_count_1, iteration_count_2,
+                        first_cipher.depth_, context_->n_power,
+                        context_->phantom_ntt_tables_, stream);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
                 }
 
-                primitive::INTT_modulus_ordered_inplace(
+                primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
                     temp4_rotation, context_->intt_table_->data(),
                     context_->modulus_->data(), cfg_intt,
                     2 * current_rns_mod_count, current_rns_mod_count,
@@ -5910,7 +5889,7 @@ namespace heongpu
                     context_->P_size);
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                primitive::NTT_inplace(
+                primitive::NTT_inplace( // @company CipherFlow
                     result.data() + offset, context_->ntt_table_->data(),
                     context_->modulus_->data(), cfg_ntt,
                     2 * current_decomp_count, current_decomp_count,
@@ -5943,7 +5922,7 @@ namespace heongpu
                         .mod_inverse = context_->n_inverse_->data(),
                         .stream = stream};
 
-                    primitive::INTT(
+                        primitive::INTT( // @company CipherFlow
                         in_data, temp0_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
                         2 * current_decomp_count, current_decomp_count,
@@ -5965,15 +5944,12 @@ namespace heongpu
                         counter--;
                     }
 
-                    base_conversion_DtoQtilde_relin_leveled_kernel<<<
-                        dim3((context_->n >> 8),
-                             context_->d_leveled->operator[](
-                                 first_cipher.depth_),
-                             1),
-                        256, 0, stream>>>(
+                    primitive::base_conversion_DtoQtilde_relin_leveled_ntt( // @company CipherFlow
                         temp0_rotation +
                             (current_decomp_count << context_->n_power),
-                        temp3_rotation, context_->modulus_->data(),
+                        in_data + (current_decomp_count << context_->n_power),
+                        temp3_rotation, context_->ntt_table_->data(),
+                        context_->modulus_->data(), cfg_ntt,
                         context_->base_change_matrix_D_to_Qtilda_leveled
                             ->
                             operator[](first_cipher.depth_)
@@ -5995,17 +5971,11 @@ namespace heongpu
                         context_->n_power,
                         context_->d_leveled->operator[](first_cipher.depth_),
                         current_rns_mod_count, current_decomp_count,
-                        first_cipher.depth_,
-                        context_->prime_location_leveled->data() + location);
+                        context_->Q_size, first_cipher.depth_,
+                        context_->prime_location_leveled->data() + location,
+                        new_prime_locations + location, true,
+                        context_->phantom_ntt_tables_, stream);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
-
-                    primitive::NTT_modulus_ordered_inplace(
-                        temp3_rotation, context_->ntt_table_->data(),
-                        context_->modulus_->data(), cfg_ntt,
-                        context_->d_leveled->operator[](first_cipher.depth_) *
-                            current_rns_mod_count,
-                        current_rns_mod_count, new_prime_locations + location,
-                        context_->phantom_ntt_tables_);
 
                     // MultSum
                     // TODO: make it efficient
@@ -6017,34 +5987,32 @@ namespace heongpu
                         4;
                     if (galois_key.storage_type_ == storage_type::DEVICE)
                     {
-                        keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                            dim3((context_->n >> 8), current_rns_mod_count, 1),
-                            256, 0, stream>>>(
+                        primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
                             temp3_rotation,
                             galois_key.device_location_[galois_elt].data(),
                             temp4_rotation, context_->modulus_->data(),
                             first_rns_mod_count, current_decomp_count,
                             current_rns_mod_count, iteration_count_1,
                             iteration_count_2, first_cipher.depth_,
-                            context_->n_power);
+                            context_->n_power, context_->phantom_ntt_tables_,
+                            stream);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
                     else
                     {
                         DeviceVector<Data64> key_location(
                             galois_key.host_location_[galois_elt], stream);
-                        keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
-                            dim3((context_->n >> 8), current_rns_mod_count, 1),
-                            256, 0, stream>>>(
+                        primitive::keyswitch_multiply_accumulate_leveled_method_II( // @company CipherFlow
                             temp3_rotation, key_location.data(), temp4_rotation,
                             context_->modulus_->data(), first_rns_mod_count,
                             current_decomp_count, current_rns_mod_count,
                             iteration_count_1, iteration_count_2,
-                            first_cipher.depth_, context_->n_power);
+                            first_cipher.depth_, context_->n_power,
+                            context_->phantom_ntt_tables_, stream);
                         HEONGPU_CUDA_CHECK(cudaGetLastError());
                     }
 
-                    primitive::INTT_modulus_ordered_inplace(
+                    primitive::INTT_modulus_ordered_inplace( // @company CipherFlow
                         temp4_rotation, context_->intt_table_->data(),
                         context_->modulus_->data(), cfg_intt,
                         2 * current_rns_mod_count, current_rns_mod_count,
@@ -6064,7 +6032,7 @@ namespace heongpu
                         context_->Q_size, context_->P_size);
                     HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-                    primitive::NTT_inplace(
+                    primitive::NTT_inplace( // @company CipherFlow
                         result.data() + offset, context_->ntt_table_->data(),
                         context_->modulus_->data(), cfg_ntt,
                         2 * current_decomp_count, current_decomp_count,
@@ -6674,7 +6642,7 @@ namespace heongpu
 
         Complex64 scaling(std::pow(StoC_Scaling_, 1.0 / double(StoC_piece_)),
                           0.0);
-        
+
         int matrix_counter = 0;
         for (int i = 0; i < StoC_piece_; i++)
         {
@@ -6751,7 +6719,7 @@ namespace heongpu
 
         Complex64 scaling(std::pow(CtoS_Scaling_, 1.0 / double(CtoS_piece_)),
                           0.0);
-        
+
         int matrix_counter = 0;
         for (int i = 0; i < CtoS_piece_; i++)
         {
@@ -7376,7 +7344,7 @@ namespace heongpu
             std::vector<int> index_mul_sorted;
             std::vector<int> diag_index_temp;
             std::vector<int> iteration_temp;
-            if (matrix_count == 1) 
+            if (matrix_count == 1)
             {
                 index_mul_sorted = unique_sort(E_splitted_index_[k]);
             }
@@ -7545,7 +7513,7 @@ namespace heongpu
             std::vector<int> index_mul_sorted;
             std::vector<int> diag_index_temp;
             std::vector<int> iteration_temp;
-            if (matrix_count == 1) 
+            if (matrix_count == 1)
             {
                 index_mul_sorted = unique_sort(E_inv_splitted_index_[k]);
             }
@@ -7697,7 +7665,7 @@ namespace heongpu
             heongpu::DeviceVector<Complex64> V_mul((V_matrixs_index_[i].size())
                                                    << log_dslots_);
             cudaMemset(V_mul.data(), 0, V_mul.size() * sizeof(Complex64));
-            
+
 
             int input_loc = (3 * matrix_counter) << log_dslots_;
             int R_matrix_counter = 0;
@@ -7833,21 +7801,21 @@ namespace heongpu
     {
        for (int i = 0; i < StoC_piece_; i++)
         {
-            std::vector<int> rot_n1, rot_n2; 
-            std::vector<std::vector<int>> result = 
+            std::vector<int> rot_n1, rot_n2;
+            std::vector<std::vector<int>> result =
                     heongpu::seperate_func_v2(V_matrixs_index_[i], dslots_, rot_n1, rot_n2, StoC_bsgs_ratio);
 
             diags_matrices_bsgs_.push_back(std::move(result));
 
-            diags_matrices_bsgs_rot_n1_.push_back(std::move(rot_n1)); 
-            diags_matrices_bsgs_rot_n2_.push_back(std::move(rot_n2)); 
+            diags_matrices_bsgs_rot_n1_.push_back(std::move(rot_n1));
+            diags_matrices_bsgs_rot_n2_.push_back(std::move(rot_n2));
         }
 
         for (int i = 0; i < CtoS_piece_; i++)
         {
-            std::vector<int> rot_n1, rot_n2; 
+            std::vector<int> rot_n1, rot_n2;
             std::vector<std::vector<int>> result =
-                    heongpu::seperate_func_v2(V_inv_matrixs_index_[i], dslots_, rot_n1, rot_n2, CtoS_bsgs_ratio); 
+                    heongpu::seperate_func_v2(V_inv_matrixs_index_[i], dslots_, rot_n1, rot_n2, CtoS_bsgs_ratio);
 
             diags_matrices_inv_bsgs_.push_back(std::move(result));
 
@@ -7938,7 +7906,7 @@ namespace heongpu
                 {
                     int index_ = index - diags_matrices_inv_bsgs_rot_n1_[m][j];
                     if (index_ != 0 && std::find(key_indexs_.begin(), key_indexs_.end(), index_) == key_indexs_.end()) {
-                        key_indexs_.push_back(index_);     
+                        key_indexs_.push_back(index_);
                     }
                 }
             }
@@ -7959,7 +7927,7 @@ namespace heongpu
                 {
                     int index_ = index - diags_matrices_bsgs_rot_n1_[m][j];
                     if (index_ != 0 && std::find(key_indexs_.begin(), key_indexs_.end(), index_) == key_indexs_.end()) {
-                        key_indexs_.push_back(index_);     
+                        key_indexs_.push_back(index_);
                     }
                 }
             }
@@ -8017,7 +7985,7 @@ namespace heongpu
         return static_cast<int>(std::ceil(std::log2(coeffs_.size())));
     }
 
-    __host__ std::pair<HEOperator<Scheme::CKKS>::Polynomial, 
+    __host__ std::pair<HEOperator<Scheme::CKKS>::Polynomial,
                        HEOperator<Scheme::CKKS>::Polynomial>
     HEOperator<Scheme::CKKS>::Polynomial::split_coeffs(int split) const
     {
@@ -8462,7 +8430,7 @@ namespace heongpu
             input1,
             [&](Ciphertext<Scheme::CKKS>& input1_)
             {
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     input1.data(), input_intt_poly.data(),
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2, 1, context_->phantom_ntt_tables_);
@@ -8477,7 +8445,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -8720,7 +8688,7 @@ namespace heongpu
             StoC_results,
             [&](Ciphertext<Scheme::CKKS>& StoC_results_)
             {
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     StoC_results.data(), input_intt_poly.data(),
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2, 1, context_->phantom_ntt_tables_);
@@ -8735,7 +8703,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -8980,7 +8948,7 @@ namespace heongpu
             StoC_results,
             [&](Ciphertext<Scheme::CKKS>& StoC_results_)
             {
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     StoC_results.data(), input_intt_poly.data(),
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2, 1, context_->phantom_ntt_tables_);
@@ -8995,7 +8963,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,
@@ -9123,7 +9091,7 @@ namespace heongpu
             StoC_results,
             [&](Ciphertext<Scheme::CKKS>& StoC_results_)
             {
-                primitive::INTT(
+                primitive::INTT( // @company CipherFlow
                     StoC_results.data(), input_intt_poly.data(),
                     context_->intt_table_->data(), context_->modulus_->data(),
                     cfg_intt, 2, 1, context_->phantom_ntt_tables_);
@@ -9138,7 +9106,7 @@ namespace heongpu
             context_->n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
-        primitive::NTT_inplace(
+        primitive::NTT_inplace( // @company CipherFlow
             c_raised.data(), context_->ntt_table_->data(),
             context_->modulus_->data(), cfg_ntt,
             2 * context_->Q_size, context_->Q_size,

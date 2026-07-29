@@ -113,6 +113,7 @@ set(RNGonGPU_USE_INTERNAL_GPUNTT
 add_subdirectory(thirdparty)
 add_subdirectory(primitives/fft)
 add_subdirectory(primitives/ntt)
+add_subdirectory(primitives/switchkey)
 add_subdirectory(src)
 
 ############################################################################

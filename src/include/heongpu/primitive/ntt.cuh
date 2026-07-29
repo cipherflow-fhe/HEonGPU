@@ -27,7 +27,7 @@ namespace primitive
         int n_power,
         cudaStream_t stream = 0,
         bool forward_only = false);
-    
+
     /////////////////////////////////// Forward NTT ////////////////////////////////
     void NTT_inplace(
         Data64* data,
@@ -47,6 +47,18 @@ namespace primitive
         int mod_count,
         int* order,
         const std::shared_ptr<PhantomNttTables>& phantom_tables);
+
+    void NTT_modmajor_inplace(
+        Data64* data,
+        gpuntt::ntt_rns_configuration<Data64> cfg,
+        int current_qp,
+        int current_q,
+        int first_q_count,
+        int decomp_count,
+        int* group_sizes,
+        int* group_locations,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool skip_excluded);
 
     /////////////////////////////////// Inverse NTT ////////////////////////////////
     void INTT_inplace(

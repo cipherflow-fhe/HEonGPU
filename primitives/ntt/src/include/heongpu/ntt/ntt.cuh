@@ -36,14 +36,8 @@ namespace ntt
         gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size,
         int mod_count,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
-
-    void phantom_ntt_inplace_batched(
-        Data64* data,
-        gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size,
-        int mod_count,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool batch);
 
     void phantom_ntt_modulus_ordered_inplace(
         Data64* data,
@@ -51,15 +45,20 @@ namespace ntt
         int batch_size,
         int mod_count,
         const int* order,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool batch);
 
-    void phantom_ntt_modulus_ordered_inplace_batched(
+    void phantom_ntt_modmajor_inplace(
         Data64* data,
         gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size,
-        int mod_count,
-        const int* order,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+        int current_qp,
+        int current_q,
+        int first_q_count,
+        int decomp_count,
+        const int* group_sizes,
+        const int* group_locations,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool skip_excluded);
 
     /////////////////////////////////// Inverse NTT ////////////////////////////////
     void phantom_intt_inplace(
@@ -67,14 +66,8 @@ namespace ntt
         gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size,
         int mod_count,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
-
-    void phantom_intt_inplace_batched(
-        Data64* data,
-        gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size,
-        int mod_count,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool batch);
 
     void phantom_intt(
         const Data64* input,
@@ -82,15 +75,8 @@ namespace ntt
         gpuntt::ntt_rns_configuration<Data64> cfg,
         int batch_size,
         int mod_count,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
-
-    void phantom_intt_batched(
-        const Data64* input,
-        Data64* output,
-        gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size,
-        int mod_count,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool batch);
 
     void phantom_intt_modulus_ordered_inplace(
         Data64* data,
@@ -98,15 +84,8 @@ namespace ntt
         int batch_size,
         int mod_count,
         const int* order,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
-
-    void phantom_intt_modulus_ordered_inplace_batched(
-        Data64* data,
-        gpuntt::ntt_rns_configuration<Data64> cfg,
-        int batch_size,
-        int mod_count,
-        const int* order,
-        const std::shared_ptr<PhantomNttTables>& phantom_tables);
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        bool batch);
 
     void phantom_intt_poly_ordered_inplace_batched(
         Data64* data,
