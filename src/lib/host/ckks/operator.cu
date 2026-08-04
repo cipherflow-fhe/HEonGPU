@@ -5245,7 +5245,7 @@ namespace heongpu
         std::unordered_map<int, Ciphertext<Scheme::CKKS>> powered_ciphers;
         powered_ciphers[1] = cipher;
 
-        // BSGS optimization: calculate optimal split point
+        // BSGS split: calculate optimal split point
         int poly_degree = pol.degree();
         int log_degree = std::ceil(std::log2(poly_degree));
         int log_split = optimal_split(log_degree);

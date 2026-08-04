@@ -8,10 +8,27 @@
 #include <heongpu/primitive/switchkey.cuh>
 #include <heongpu/switchkey/switchkey.cuh>
 
+#include <cstdlib>
+
 namespace heongpu
 {
 namespace primitive
 {
+namespace
+{
+    bool use_modmajor_keyswitch(const std::shared_ptr<PhantomNttTables>& tables)
+    {
+        if (!tables)
+        {
+            return false;
+        }
+
+        const char* enabled = std::getenv("HEONGPU_USE_MOD_KSWITCH");
+        return !enabled || enabled[0] != '0';
+    }
+
+} // namespace
+
     void base_conversion_DtoQtilde_relin_leveled_ntt(
         Data64* ciphertext_coeff,
         Data64* ciphertext_ntt,
@@ -36,7 +53,7 @@ namespace primitive
         const std::shared_ptr<PhantomNttTables>& tables,
         cudaStream_t stream)
     {
-        if (!tables)
+        if (!use_modmajor_keyswitch(tables))
         {
             base_conversion_DtoQtilde_relin_leveled_kernel<<<
                 dim3((1 << n_power) >> 8, d, 1), 256, 0, stream>>>(
@@ -75,7 +92,7 @@ namespace primitive
         const std::shared_ptr<PhantomNttTables>& tables,
         cudaStream_t stream)
     {
-        if (!tables)
+        if (!use_modmajor_keyswitch(tables))
         {
             keyswitch_multiply_accumulate_leveled_method_II_kernel<<<
                 dim3((1 << n_power) >> 8, current_rns_mod_count, 1), 256, 0,

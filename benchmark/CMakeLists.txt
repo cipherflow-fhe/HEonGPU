@@ -8,11 +8,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${BINARY_LOCATION}/benchmark)
 set(EXECUTABLES
     bfv_benchmark benchmark_bfv.cpp
     ckks_benchmark benchmark_ckks.cpp
+    ntt_plugin_benchmark ntt_plugin/benchmark.cpp
+    ntt_plugin_correctness ntt_plugin/correctness.cpp
     tfhe_benchmark benchmark_tfhe.cpp
 )
 
 function(add_benchmark exe source)
     add_executable(${exe} ${source})
+    if(exe STREQUAL ntt_plugin_correctness)
+        set_source_files_properties(${source} PROPERTIES LANGUAGE CUDA)
+    endif()
     target_link_libraries(${exe} PRIVATE heongpu CUDA::cudart)
     set_target_properties(${exe} PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
