@@ -8,6 +8,7 @@
 #include <heongpu/ntt/ntt.cuh>
 #include <heongpu/primitive/ntt.cuh>
 #include <heongpu/primitive/switchkey.cuh>
+#include <heongpu/util/util.cuh>
 
 #include <algorithm>
 #include <cmath>
@@ -22,11 +23,14 @@ using ntt_plugin::make_context;
 using ntt_plugin::make_bootstrapping_config;
 using ntt_plugin::make_parameters;
 using ntt_plugin::make_ntt_order;
+using ntt_plugin::make_bsgs_input;
 using ntt_plugin::ntt_surface_title;
+using ntt_plugin::set_optimization_env;
 using ntt_plugin::sort_parameters_by_n;
 using ntt_plugin::NttSurface;
 using ntt_plugin::ParameterSet;
 using ntt_plugin::Scheme;
+using heongpu::CudaException;
 
 constexpr int kKernelPolyCounts[] = {1, 2, 4, 8, 16, 32};
 constexpr int kWarmupCount = 2;
@@ -45,6 +49,21 @@ struct BenchmarkResult
     std::string label;
     size_t poly_modulus_degree = 0;
     OperationTiming timing;
+};
+
+struct OptimizationRoute
+{
+    std::string name;
+    bool use_phantom_ntt = false;
+    bool use_mod_keyswitch = false;
+    bool use_keyswitch_part2 = true;
+    bool use_bsgs_fusion = true;
+};
+
+struct BootstrapRouteResult
+{
+    std::string name;
+    BenchmarkResult result;
 };
 
 struct NttKernelResult
@@ -98,9 +117,44 @@ float average_kernel_time(cudaStream_t stream, cudaEvent_t start_time,
     return total / repeat_count;
 }
 
-BenchmarkResult run_operator_case(const ParameterSet& parameter,
-                                  bool use_phantom_ntt)
+template <typename PrepareFunc, typename TimedFunc>
+float average_prepared_kernel_time(cudaStream_t stream, cudaEvent_t start_time,
+                                   cudaEvent_t stop_time, int warmup_count,
+                                   int repeat_count, PrepareFunc&& prepare,
+                                   TimedFunc&& func)
 {
+    for (int trial = 0; trial < warmup_count; ++trial)
+    {
+        prepare();
+        cudaEventRecord(start_time, stream);
+        func();
+        cudaEventRecord(stop_time, stream);
+        cudaEventSynchronize(stop_time);
+    }
+    cudaStreamSynchronize(stream);
+
+    float total = 0.0F;
+    for (int trial = 0; trial < repeat_count; ++trial)
+    {
+        prepare();
+        cudaEventRecord(start_time, stream);
+        func();
+        cudaEventRecord(stop_time, stream);
+        cudaEventSynchronize(stop_time);
+
+        float elapsed = 0.0F;
+        cudaEventElapsedTime(&elapsed, start_time, stop_time);
+        total += elapsed;
+    }
+    return total / repeat_count;
+}
+
+BenchmarkResult run_operator_case(const ParameterSet& parameter,
+                                  bool use_original_route)
+{
+    const bool use_phantom_ntt = !use_original_route;
+    set_optimization_env(!use_original_route, !use_original_route,
+                         !use_original_route);
     heongpu::HEContext<Scheme> context =
         make_context(parameter, use_phantom_ntt);
 
@@ -193,11 +247,13 @@ BenchmarkResult run_operator_case(const ParameterSet& parameter,
 }
 
 BenchmarkResult run_bootstrapping_case(const ParameterSet& parameter,
-                                       bool use_phantom_ntt,
+                                       const OptimizationRoute& route,
                                        int repeat_count)
 {
+    set_optimization_env(route.use_mod_keyswitch, route.use_keyswitch_part2,
+                         route.use_bsgs_fusion);
     heongpu::HEContext<Scheme> context =
-        make_context(parameter, use_phantom_ntt, true);
+        make_context(parameter, route.use_phantom_ntt, true);
 
     constexpr int secret_weight = 192;
     constexpr int ephemeral_secret_weight = 32;
@@ -585,6 +641,241 @@ std::vector<NttKernelResult> run_ntt_kernel_comparison(
     return results;
 }
 
+std::vector<NttKernelResult> run_bsgs_fusion_microbenchmark(
+    const std::vector<ParameterSet>& parameters, int repeat_count)
+{
+    std::vector<NttKernelResult> results;
+    cudaEvent_t start_time, stop_time;
+    cudaEventCreate(&start_time);
+    cudaEventCreate(&stop_time);
+
+    for (const auto& parameter : parameters)
+    {
+        if (parameter.poly_modulus_degree > MAX_POLY_DEGREE)
+        {
+            continue;
+        }
+
+        const auto moduli = build_key_modulus(parameter);
+        const int limb_count = static_cast<int>(moduli.size());
+        const int n_power =
+            static_cast<int>(std::log2(parameter.poly_modulus_degree));
+        const std::size_t n = parameter.poly_modulus_degree;
+        const std::size_t limb_elements =
+            n * static_cast<std::size_t>(limb_count);
+        const std::size_t ct_elements = 2 * limb_elements;
+        constexpr int galois_elt = 5;
+        const auto roots_base =
+            heongpu::generate_primitive_root_of_unity(n, moduli);
+        const auto forward_roots =
+            heongpu::generate_ntt_table(roots_base, moduli, n_power);
+        const auto inverse_roots =
+            heongpu::generate_intt_table(roots_base, moduli, n_power);
+        const auto n_inverse = heongpu::generate_n_inverse(n, moduli);
+        const auto tables =
+            heongpu::ntt::make_phantom_ntt_tables_from_heongpu_roots(
+                moduli, forward_roots, inverse_roots, n_inverse, n_power, 0,
+                true);
+
+        const auto input =
+            make_bsgs_input(n, 2 * limb_count, limb_count, moduli, 17);
+        const auto addend =
+            make_bsgs_input(n, limb_count, limb_count, moduli, 31);
+        const auto accum =
+            make_bsgs_input(n, 2 * limb_count, limb_count, moduli, 43);
+
+        cudaStream_t stream;
+        cudaStreamCreate(&stream);
+
+        heongpu::DeviceVector<Modulus64> device_moduli(moduli);
+        heongpu::DeviceVector<Data64> device_addend(addend);
+        heongpu::DeviceVector<Data64> device_accum(accum);
+        heongpu::DeviceVector<Data64> baby_input_unfused(input);
+        heongpu::DeviceVector<Data64> baby_input_fused(input);
+        heongpu::DeviceVector<Data64> giant_input_unfused(input);
+        heongpu::DeviceVector<Data64> giant_input_fused(input);
+        heongpu::DeviceVector<Data64> output_unfused(ct_elements);
+        heongpu::DeviceVector<Data64> output_fused(ct_elements);
+        heongpu::DeviceVector<Data64> scratch(ct_elements);
+        cudaStreamSynchronize(stream);
+
+        setenv("HEONGPU_USE_BSGS_FUSION", "0", 1);
+        const float baby_original_ms = average_kernel_time(
+            stream, start_time, stop_time, kWarmupCount, repeat_count,
+            [&]() {
+                heongpu::primitive::bs_add_permute_fused(
+                    baby_input_unfused.data(), device_addend.data(),
+                    output_unfused.data(), device_moduli.data(), galois_elt,
+                    n_power, limb_count, tables, stream);
+            });
+
+        setenv("HEONGPU_USE_BSGS_FUSION", "1", 1);
+        const float baby_optimized_ms = average_kernel_time(
+            stream, start_time, stop_time, kWarmupCount, repeat_count,
+            [&]() {
+                heongpu::primitive::bs_add_permute_fused(
+                    baby_input_fused.data(), device_addend.data(),
+                    output_fused.data(), device_moduli.data(), galois_elt,
+                    n_power, limb_count, tables, stream);
+            });
+
+        setenv("HEONGPU_USE_BSGS_FUSION", "0", 1);
+        const float giant_original_ms = average_kernel_time(
+            stream, start_time, stop_time, kWarmupCount, repeat_count,
+            [&]() {
+                heongpu::primitive::gs_add_permute_acc_fused(
+                    giant_input_unfused.data(), device_addend.data(),
+                    device_accum.data(), scratch.data(), output_unfused.data(),
+                    device_moduli.data(), galois_elt, n_power, limb_count,
+                    tables, stream);
+            });
+
+        setenv("HEONGPU_USE_BSGS_FUSION", "1", 1);
+        const float giant_optimized_ms = average_kernel_time(
+            stream, start_time, stop_time, kWarmupCount, repeat_count,
+            [&]() {
+                heongpu::primitive::gs_add_permute_acc_fused(
+                    giant_input_fused.data(), device_addend.data(),
+                    device_accum.data(), scratch.data(), output_fused.data(),
+                    device_moduli.data(), galois_elt, n_power, limb_count,
+                    tables, stream);
+            });
+
+        cudaStreamDestroy(stream);
+        results.push_back({parameter.label, parameter.poly_modulus_degree,
+                           0, baby_original_ms + giant_original_ms,
+                           baby_optimized_ms + giant_optimized_ms, 0.0F});
+    }
+
+    cudaEventDestroy(start_time);
+    cudaEventDestroy(stop_time);
+    return results;
+}
+
+std::vector<NttKernelResult> run_keyswitch_part2_microbenchmark(
+    const std::vector<ParameterSet>& parameters,
+    int repeat_count)
+{
+    std::vector<NttKernelResult> results;
+    cudaEvent_t start_time, stop_time;
+    cudaEventCreate(&start_time);
+    cudaEventCreate(&stop_time);
+
+    for (const auto& parameter : parameters)
+    {
+        if (parameter.poly_modulus_degree > MAX_POLY_DEGREE)
+        {
+            continue;
+        }
+
+        const int q_size = !parameter.q.empty()
+                               ? static_cast<int>(parameter.q.size())
+                               : static_cast<int>(parameter.q_bit_sizes.size());
+        const int p_size = !parameter.p.empty()
+                               ? static_cast<int>(parameter.p.size())
+                               : static_cast<int>(parameter.p_bit_sizes.size());
+        if (q_size == 0 || p_size == 0)
+        {
+            continue;
+        }
+
+        const int q_prime_size = q_size + p_size;
+        const int n_power =
+            static_cast<int>(std::log2(parameter.poly_modulus_degree));
+        const std::size_t n = parameter.poly_modulus_degree;
+        const std::size_t q_elements = n * static_cast<std::size_t>(q_size);
+        const std::size_t output_elements = 2 * q_elements;
+
+        const auto moduli = build_key_modulus(parameter);
+        const auto half = heongpu::calculate_half(moduli, p_size);
+        const auto half_mod =
+            heongpu::calculate_half_mod(moduli, half, q_prime_size, p_size);
+        const auto last_q_modinv =
+            heongpu::calculate_last_q_modinv(moduli, q_prime_size, p_size);
+        const auto roots_base =
+            heongpu::generate_primitive_root_of_unity(n, moduli);
+        const auto forward_roots =
+            heongpu::generate_ntt_table(roots_base, moduli, n_power);
+        const auto inverse_roots =
+            heongpu::generate_intt_table(roots_base, moduli, n_power);
+        const auto n_inverse = heongpu::generate_n_inverse(n, moduli);
+        const auto tables =
+            heongpu::ntt::make_phantom_ntt_tables_from_heongpu_roots(
+                moduli, forward_roots, inverse_roots, n_inverse, n_power, 0,
+                true);
+
+        const auto input =
+            make_bsgs_input(n, 2 * q_prime_size, q_prime_size, moduli, 71);
+        const auto addend =
+            make_bsgs_input(n, q_size, q_size, moduli, 97);
+
+        cudaStream_t stream;
+        cudaStreamCreate(&stream);
+
+        heongpu::DeviceVector<Modulus64> device_moduli(moduli);
+        heongpu::DeviceVector<Root64> device_forward_roots(forward_roots);
+        heongpu::DeviceVector<Data64> device_half(half);
+        heongpu::DeviceVector<Data64> device_half_mod(half_mod);
+        heongpu::DeviceVector<Data64> device_last_q_modinv(last_q_modinv);
+        heongpu::DeviceVector<Data64> device_input(input);
+        heongpu::DeviceVector<Data64> device_addend(addend);
+
+        heongpu::DeviceVector<Data64> original_addend(q_elements);
+        heongpu::DeviceVector<Data64> original_output(output_elements);
+        heongpu::DeviceVector<Data64> optimized_output(output_elements);
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::FORWARD,
+            .ntt_layout = gpuntt::PerPolynomial,
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .stream = stream};
+
+        const auto no_prepare = []() {};
+        const auto prepare_original = [&]() {
+            HEONGPU_CUDA_CHECK(cudaMemcpyAsync(
+                original_addend.data(), device_addend.data(),
+                q_elements * sizeof(Data64), cudaMemcpyDeviceToDevice,
+                stream));
+        };
+        const auto run_original = [&]() {
+            heongpu::primitive::keyswitch_part2_fused_moddown_ntt(
+                device_input.data(), original_addend.data(),
+                nullptr, original_output.data(),
+                device_forward_roots.data(), device_moduli.data(), cfg_ntt,
+                device_half.data(), device_half_mod.data(),
+                device_last_q_modinv.data(), n_power, q_prime_size, q_size,
+                q_prime_size, q_size, p_size, nullptr, stream);
+        };
+        const auto run_optimized = [&]() {
+            heongpu::primitive::keyswitch_part2_fused_moddown_ntt(
+                device_input.data(), device_addend.data(),
+                nullptr, optimized_output.data(),
+                device_forward_roots.data(),
+                device_moduli.data(), cfg_ntt, device_half.data(),
+                device_half_mod.data(), device_last_q_modinv.data(), n_power,
+                q_prime_size, q_size, q_prime_size, q_size, p_size, tables,
+                stream);
+        };
+
+        const float original_ms = average_prepared_kernel_time(
+            stream, start_time, stop_time, kWarmupCount, repeat_count,
+            prepare_original, run_original);
+        const float optimized_ms = average_prepared_kernel_time(
+            stream, start_time, stop_time, kWarmupCount, repeat_count,
+            no_prepare, run_optimized);
+
+        cudaStreamDestroy(stream);
+        results.push_back({parameter.label, parameter.poly_modulus_degree,
+                           p_size, original_ms, optimized_ms, 0.0F});
+    }
+
+    cudaEventDestroy(start_time);
+    cudaEventDestroy(stop_time);
+    return results;
+}
+
 float speedup(float gpuntt_ms, float phantom_ms)
 {
     return phantom_ms > 0.0F ? gpuntt_ms / phantom_ms : 0.0F;
@@ -691,6 +982,84 @@ void print_ntt_kernel_table(std::vector<NttKernelResult> results,
 
 }
 
+void print_bsgs_fusion_table(std::vector<NttKernelResult> results)
+{
+    std::sort(results.begin(), results.end(),
+              [](const NttKernelResult& lhs, const NttKernelResult& rhs) {
+                  if (lhs.poly_modulus_degree != rhs.poly_modulus_degree)
+                  {
+                      return lhs.poly_modulus_degree < rhs.poly_modulus_degree;
+                  }
+                  return lhs.label < rhs.label;
+              });
+
+    std::cout << "\n=================== BSGS fusion microbenchmark ==================="
+              << std::endl;
+    std::cout << "Speedup = original BSGS ms / optimized BSGS ms."
+              << std::endl;
+    std::cout << std::left << std::setw(30) << "parameter / N"
+              << std::right << std::setw(18) << "speedup"
+              << std::setw(22) << "original/opt ms"
+              << std::endl;
+    std::cout << std::string(70, '-') << std::endl;
+
+    for (const auto& result : results)
+    {
+        std::cout << std::left << std::setw(30)
+                  << (result.label + " / " +
+                      std::to_string(result.poly_modulus_degree))
+                  << std::setw(18) << std::fixed << std::setprecision(2)
+                  << speedup(result.gpuntt_ms, result.phantom_ms)
+                  << std::setprecision(4)
+                  << std::setw(12) << result.gpuntt_ms << "/"
+                  << std::setw(9) << result.phantom_ms
+                  << std::defaultfloat << std::endl;
+    }
+}
+
+void print_keyswitch_optimization_table(std::vector<NttKernelResult> results)
+{
+    std::sort(results.begin(), results.end(),
+              [](const NttKernelResult& lhs,
+                 const NttKernelResult& rhs) {
+                  if (lhs.poly_modulus_degree != rhs.poly_modulus_degree)
+                  {
+                      return lhs.poly_modulus_degree < rhs.poly_modulus_degree;
+                  }
+                  return lhs.label < rhs.label;
+              });
+
+    std::cout << "\n=================== KeySwitch optimization microbenchmark ==================="
+              << std::endl;
+    std::cout << "Baseline: original GPUNTT/no-table divide_round, "
+                 "NTT(mod-down output), NTT(addend), add."
+              << std::endl;
+    std::cout << "KeySwitch optimization: P-specialized fused "
+                 "divide_round/add_first plus PhantomNTT NTT."
+              << std::endl;
+    std::cout << "Speedup = original GPUNTT/no-table keyswitch ms / "
+                 "optimized keyswitch ms."
+              << std::endl;
+    std::cout << std::left << std::setw(30) << "parameter / N"
+              << std::right << std::setw(6) << "P"
+              << std::right << std::setw(16) << "speedup"
+              << std::endl;
+    std::cout << std::string(52, '-') << std::endl;
+
+    for (const auto& result : results)
+    {
+        std::cout << std::left << std::setw(30)
+                  << (result.label + " / " +
+                      std::to_string(result.poly_modulus_degree))
+                  << std::right << std::fixed << std::setprecision(2)
+                  << std::setw(6) << result.poly_count
+                  << std::setw(16)
+                  << speedup(result.gpuntt_ms, result.phantom_ms)
+                  << std::defaultfloat << std::endl;
+    }
+
+}
+
 void print_operation_summary_table(
     const std::vector<BenchmarkResult>& gpuntt_results,
     const std::vector<BenchmarkResult>& route_results,
@@ -703,6 +1072,9 @@ void print_operation_summary_table(
                  "HEOperator::relinearize_external_product_method2_inplace_ckks" << std::endl;
     std::cout << "  rotate_col_II: GPU rotate_col -> HEArithmeticOperator::rotate_rows -> "
                  "HEOperator::apply_galois_ckks_method_II" << std::endl;
+    std::cout << "Optimized route: PhantomNTT + KeySwitch optimization + "
+                 "BSGS fusion."
+              << std::endl;
     std::cout << "Interpretation: GPUNTT ms / Phantom plugin, "
                  ">1.00 Phantom plugin faster, <1.00 GPUNTT faster."
               << std::endl;
@@ -729,37 +1101,43 @@ void print_operation_summary_table(
     }
 }
 
-void print_bootstrap_summary_table(const BenchmarkResult& gpuntt,
-                                   const BenchmarkResult& keyswitch)
+void print_bootstrap_summary_table(
+    const std::vector<BootstrapRouteResult>& results)
 {
     std::cout << "\n=================== regular_bootstrapping_v2 bootstrap summary ===================" << std::endl;
     std::cout << "PhantomNTT: CKKS NTT/INTT primitive replacement." << std::endl;
-    std::cout << "KeySwitch_P1: mod-major base conversion, excluded-limb NTT, "
-                 "and matching key multiplication for the keyswitch segment."
+    std::cout << "KeySwitch optimization: mod-major base conversion, "
+                 "excluded-limb NTT, key multiplication, and fused "
+                 "divide_round/add_first before the final NTT."
               << std::endl;
-    std::cout << "Parameter: " << gpuntt.label << " / N="
-              << gpuntt.poly_modulus_degree << std::endl;
-    std::cout << std::left << std::setw(24) << "metric"
-              << std::right << std::setw(16) << "GPUNTT"
-              << std::right << std::setw(28) << "KeySwitch_P1"
+    std::cout << "BSGS fusion: fuse add, NTT-domain permutation, and "
+                 "accumulation inside BSGS matrix path."
               << std::endl;
-    std::cout << std::string(68, '-') << std::endl;
+    if (results.empty())
+    {
+        return;
+    }
 
-    std::cout << std::left << std::setw(24) << "absolute ms"
-              << std::right << std::setw(16) << std::fixed
-              << std::setprecision(3)
-              << gpuntt.timing.bootstrapping
-              << std::right << std::setw(28)
-              << keyswitch.timing.bootstrapping
-              << std::defaultfloat << std::endl;
+    const auto& baseline = results.front().result;
+    std::cout << "Parameter: " << baseline.label << " / N="
+              << baseline.poly_modulus_degree << std::endl;
+    std::cout << std::left << std::setw(26) << "route"
+              << std::right << std::setw(16) << "absolute ms"
+              << std::setw(18) << "speedup"
+              << std::endl;
+    std::cout << std::string(60, '-') << std::endl;
 
-    std::cout << std::left << std::setw(24) << "speedup vs GPUNTT"
-              << std::right << std::setw(16) << std::fixed
-              << std::setprecision(2) << 1.0F
-              << std::right << std::setw(28)
-              << speedup(gpuntt.timing.bootstrapping,
-                         keyswitch.timing.bootstrapping)
-              << std::defaultfloat << std::endl;
+    for (const auto& result : results)
+    {
+        std::cout << std::left << std::setw(26) << result.name
+                  << std::right << std::fixed << std::setprecision(3)
+                  << std::setw(16) << result.result.timing.bootstrapping
+                  << std::setprecision(2)
+                  << std::setw(18)
+                  << speedup(baseline.timing.bootstrapping,
+                             result.result.timing.bootstrapping)
+                  << std::defaultfloat << std::endl;
+    }
 }
 
 int main()
@@ -804,6 +1182,14 @@ int main()
         print_ntt_kernel_table(results, mode);
     }
 
+    const auto bsgs_results =
+        run_bsgs_fusion_microbenchmark(parameters, repeat_count);
+    print_bsgs_fusion_table(bsgs_results);
+
+    const auto keyswitch_part2_results =
+        run_keyswitch_part2_microbenchmark(parameters, repeat_count);
+    print_keyswitch_optimization_table(keyswitch_part2_results);
+
     // HEOperator benchmarks.
     std::vector<BenchmarkResult> gpuntt_results;
     std::vector<BenchmarkResult> phantom_results;
@@ -818,13 +1204,13 @@ int main()
 
         if ((i % 2) == 0)
         {
-            gpuntt = run_operator_case(parameter, false);
-            phantom = run_operator_case(parameter, true);
+            gpuntt = run_operator_case(parameter, true);
+            phantom = run_operator_case(parameter, false);
         }
         else
         {
-            phantom = run_operator_case(parameter, true);
-            gpuntt = run_operator_case(parameter, false);
+            phantom = run_operator_case(parameter, false);
+            gpuntt = run_operator_case(parameter, true);
         }
 
         gpuntt_results.push_back(gpuntt);
@@ -842,17 +1228,22 @@ int main()
                      });
     if (boot_parameter != operation_parameters.end())
     {
-        BenchmarkResult gpuntt_boot =
-            run_bootstrapping_case(*boot_parameter, false,
-                                   bootstrap_repeat_count);
-        BenchmarkResult phantom_boot =
-            run_bootstrapping_case(*boot_parameter, true,
-                                   bootstrap_repeat_count);
+        const std::vector<OptimizationRoute> bootstrap_routes = {
+            {"Original", false, false, false, false},
+            {"KeySwitch optimization", true, true, true, false},
+            {"Full optimized", true, true, true, true}};
 
-        std::cout << "\nOptimization: PhantomNTT plus KeySwitch_P1 for "
-                     "bootstrapping keyswitch path."
-                  << std::endl;
-        print_bootstrap_summary_table(gpuntt_boot, phantom_boot);
+        std::vector<BootstrapRouteResult> bootstrap_results;
+        bootstrap_results.reserve(bootstrap_routes.size());
+        for (const auto& route : bootstrap_routes)
+        {
+            bootstrap_results.push_back(
+                {route.name,
+                 run_bootstrapping_case(*boot_parameter, route,
+                                        bootstrap_repeat_count)});
+        }
+
+        print_bootstrap_summary_table(bootstrap_results);
     }
     return EXIT_SUCCESS;
 }

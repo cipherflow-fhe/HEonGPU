@@ -18,9 +18,27 @@ Run benchmarks:
 ./build/bin/benchmark/ntt_plugin_benchmark
 ```
 
-Use `HEONGPU_USE_PHANTOM_NTT=0` to force the GPUNTT path.
-Use `HEONGPU_USE_PHANTOM_NTT=1` to enable PhantomNTT; KeySwitch_P1 is enabled
-by default in this mode.
+The benchmark executable prints GPUNTT and optimized routes in one run. For
+Retina or other HEonGPU application runs, use these runtime routes:
 
-For comparison only, `HEONGPU_USE_PHANTOM_NTT=1 HEONGPU_USE_MOD_KSWITCH=0`
-keeps PhantomNTT on and disables KeySwitch_P1.
+```bash
+# Original HEonGPU path: GPUNTT, no PhantomNTT-dependent optimizations.
+HEONGPU_USE_PHANTOM_NTT=0 <command>
+
+# Optimized path: PhantomNTT plus KeySwitch_P1, KeySwitch_Part2, and BSGS fusion.
+HEONGPU_USE_PHANTOM_NTT=1 <command>
+```
+
+With `HEONGPU_USE_PHANTOM_NTT=1`, all KeySwitch/BSGS optimizations are enabled
+by default. Use these only for ablation or staged comparison:
+
+```bash
+HEONGPU_USE_MOD_KSWITCH=0   # disable KeySwitch_P1
+HEONGPU_USE_KSWITCH_P2=0    # disable KeySwitch_Part2
+HEONGPU_USE_BSGS_FUSION=0   # disable BSGS fusion
+```
+
+The same runtime rule applies to Retina/inference runs: `HEONGPU_USE_PHANTOM_NTT=0`
+is the GPUNTT baseline, and `HEONGPU_USE_PHANTOM_NTT=1` is the full optimized
+Phantom route unless one of the ablation variables above is explicitly set to
+`0`.

@@ -6,8 +6,10 @@
 
 #include <heongpu/kernel/switchkey.cuh>
 #include <heongpu/ntt/ntt.cuh>
+#include <heongpu/primitive/ntt.cuh>
 #include <heongpu/primitive/switchkey.cuh>
 #include <heongpu/switchkey/switchkey.cuh>
+#include <heongpu/util/util.cuh>
 
 #include <algorithm>
 #include <cmath>
@@ -23,7 +25,9 @@ using ntt_plugin::make_context;
 using ntt_plugin::make_bootstrapping_config;
 using ntt_plugin::make_parameters;
 using ntt_plugin::make_ntt_order;
+using ntt_plugin::make_bsgs_input;
 using ntt_plugin::ntt_surface_name;
+using ntt_plugin::set_optimization_env;
 using ntt_plugin::sort_parameters_by_n;
 using ntt_plugin::NttSurface;
 using ntt_plugin::ParameterSet;
@@ -534,6 +538,298 @@ CheckResult run_mod_kswitch_correctness(const ParameterSet& parameter)
             mismatches == 0, static_cast<double>(mismatches), mismatches};
 }
 
+CheckResult run_bsgs_fusion_correctness(const ParameterSet& parameter)
+{
+    const auto moduli = build_key_modulus(parameter);
+    const int limb_count = static_cast<int>(moduli.size());
+    const int n_power =
+        static_cast<int>(std::log2(parameter.poly_modulus_degree));
+    const std::size_t n = parameter.poly_modulus_degree;
+    const int component_count = 2;
+    const std::size_t limb_elements =
+        n * static_cast<std::size_t>(limb_count);
+    const std::size_t ct_elements =
+        limb_elements * static_cast<std::size_t>(component_count);
+    constexpr int galois_elt = 5;
+    const auto roots_base =
+        heongpu::generate_primitive_root_of_unity(n, moduli);
+    const auto forward_roots =
+        heongpu::generate_ntt_table(roots_base, moduli, n_power);
+    const auto inverse_roots =
+        heongpu::generate_intt_table(roots_base, moduli, n_power);
+    const auto n_inverse = heongpu::generate_n_inverse(n, moduli);
+    const auto tables =
+        heongpu::ntt::make_phantom_ntt_tables_from_heongpu_roots(
+            moduli, forward_roots, inverse_roots, n_inverse, n_power, 0, true);
+
+    const auto input =
+        make_bsgs_input(n, component_count * limb_count, limb_count, moduli,
+                        17);
+    const auto addend =
+        make_bsgs_input(n, limb_count, limb_count, moduli, 31);
+    const auto accum =
+        make_bsgs_input(n, component_count * limb_count, limb_count, moduli,
+                        43);
+
+    heongpu::DeviceVector<Modulus64> device_moduli(moduli);
+    heongpu::DeviceVector<Data64> baby_base_input(input);
+    heongpu::DeviceVector<Data64> baby_fused_input(input);
+    heongpu::DeviceVector<Data64> giant_base_input(input);
+    heongpu::DeviceVector<Data64> giant_fused_input(input);
+    heongpu::DeviceVector<Data64> device_addend(addend);
+    heongpu::DeviceVector<Data64> device_accum(accum);
+    heongpu::DeviceVector<Data64> baby_base_output(ct_elements);
+    heongpu::DeviceVector<Data64> baby_fused_output(ct_elements);
+    heongpu::DeviceVector<Data64> giant_base_output(ct_elements);
+    heongpu::DeviceVector<Data64> giant_fused_output(ct_elements);
+    heongpu::DeviceVector<Data64> scratch(ct_elements);
+
+    setenv("HEONGPU_USE_BSGS_FUSION", "0", 1);
+    heongpu::primitive::bs_add_permute_fused(
+        baby_base_input.data(), device_addend.data(), baby_base_output.data(),
+        device_moduli.data(), galois_elt, n_power, limb_count, tables, 0);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+    heongpu::primitive::gs_add_permute_acc_fused(
+        giant_base_input.data(), device_addend.data(), device_accum.data(),
+        scratch.data(), giant_base_output.data(), device_moduli.data(),
+        galois_elt, n_power, limb_count, tables, 0);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+    setenv("HEONGPU_USE_BSGS_FUSION", "1", 1);
+    heongpu::primitive::bs_add_permute_fused(
+        baby_fused_input.data(), device_addend.data(),
+        baby_fused_output.data(), device_moduli.data(), galois_elt, n_power,
+        limb_count, tables, 0);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+    heongpu::primitive::gs_add_permute_acc_fused(
+        giant_fused_input.data(), device_addend.data(), device_accum.data(),
+        scratch.data(), giant_fused_output.data(), device_moduli.data(),
+        galois_elt, n_power, limb_count, tables, 0);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+    HEONGPU_CUDA_CHECK(cudaDeviceSynchronize());
+    std::vector<Data64> baby_base_result(ct_elements);
+    std::vector<Data64> baby_fused_result(ct_elements);
+    std::vector<Data64> giant_base_result(ct_elements);
+    std::vector<Data64> giant_fused_result(ct_elements);
+    HEONGPU_CUDA_CHECK(cudaMemcpy(baby_base_result.data(),
+                                  baby_base_output.data(),
+                                  ct_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(baby_fused_result.data(),
+                                  baby_fused_output.data(),
+                                  ct_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(giant_base_result.data(),
+                                  giant_base_output.data(),
+                                  ct_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(giant_fused_result.data(),
+                                  giant_fused_output.data(),
+                                  ct_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+
+    const std::size_t baby_mismatches = count_row_mismatches(
+        baby_base_result, baby_fused_result, moduli, n, limb_count);
+    const std::size_t giant_mismatches = count_row_mismatches(
+        giant_base_result, giant_fused_result, moduli, n, limb_count);
+    const std::size_t mismatches = baby_mismatches + giant_mismatches;
+    return {"BSGS fusion", "baby_step + giant_step", parameter.label,
+            mismatches == 0, static_cast<double>(mismatches), mismatches};
+}
+
+CheckResult run_keyswitch_part2_correctness(const ParameterSet& parameter)
+{
+    const int q_size = !parameter.q.empty()
+                           ? static_cast<int>(parameter.q.size())
+                           : static_cast<int>(parameter.q_bit_sizes.size());
+    const int p_size = !parameter.p.empty()
+                           ? static_cast<int>(parameter.p.size())
+                           : static_cast<int>(parameter.p_bit_sizes.size());
+    if (q_size == 0 || p_size == 0)
+    {
+        return {"KeySwitch_Part2", "part2", parameter.label,
+                false, 1.0, 1};
+    }
+
+    const int q_prime_size = q_size + p_size;
+    const int n_power =
+        static_cast<int>(std::log2(parameter.poly_modulus_degree));
+    const std::size_t n = parameter.poly_modulus_degree;
+    const std::size_t q_elements = n * static_cast<std::size_t>(q_size);
+    const std::size_t output_elements = 2 * q_elements;
+
+    const auto moduli = build_key_modulus(parameter);
+    const auto half = heongpu::calculate_half(moduli, p_size);
+    const auto half_mod =
+        heongpu::calculate_half_mod(moduli, half, q_prime_size, p_size);
+    const auto last_q_modinv =
+        heongpu::calculate_last_q_modinv(moduli, q_prime_size, p_size);
+    const auto roots_base =
+        heongpu::generate_primitive_root_of_unity(n, moduli);
+    const auto forward_roots =
+        heongpu::generate_ntt_table(roots_base, moduli, n_power);
+    const auto inverse_roots =
+        heongpu::generate_intt_table(roots_base, moduli, n_power);
+    const auto n_inverse = heongpu::generate_n_inverse(n, moduli);
+    const auto tables =
+        heongpu::ntt::make_phantom_ntt_tables_from_heongpu_roots(
+            moduli, forward_roots, inverse_roots, n_inverse, n_power, 0, true);
+
+    const auto input =
+        make_bsgs_input(n, 2 * q_prime_size, q_prime_size, moduli, 71);
+    const auto addend = make_bsgs_input(n, q_size, q_size, moduli, 97);
+
+    heongpu::DeviceVector<Modulus64> device_moduli(moduli);
+    heongpu::DeviceVector<Root64> device_forward_roots(forward_roots);
+    heongpu::DeviceVector<Data64> device_half(half);
+    heongpu::DeviceVector<Data64> device_half_mod(half_mod);
+    heongpu::DeviceVector<Data64> device_last_q_modinv(last_q_modinv);
+    heongpu::DeviceVector<Data64> device_input(input);
+    heongpu::DeviceVector<Data64> device_addend(addend);
+
+    heongpu::DeviceVector<Data64> baseline_gpuntt_div(output_elements);
+    heongpu::DeviceVector<Data64> baseline_gpuntt_addend(q_elements);
+    heongpu::DeviceVector<Data64> baseline_output(output_elements);
+    heongpu::DeviceVector<Data64> baseline_phantom_div(output_elements);
+    heongpu::DeviceVector<Data64> baseline_phantom_addend(q_elements);
+    heongpu::DeviceVector<Data64> baseline_phantom_output(output_elements);
+    heongpu::DeviceVector<Data64> original_wrapper_addend(q_elements);
+    heongpu::DeviceVector<Data64> original_wrapper_output(output_elements);
+    heongpu::DeviceVector<Data64> original_wrapper_scratch(q_elements);
+    heongpu::DeviceVector<Data64> keyswitch_part2_addend(q_elements);
+    heongpu::DeviceVector<Data64> keyswitch_part2_output(output_elements);
+    heongpu::DeviceVector<Data64> keyswitch_part2_scratch(q_elements);
+    heongpu::DeviceVector<Data64> keyswitch_part2_phantom_output(output_elements);
+    heongpu::DeviceVector<Data64> keyswitch_part2_phantom_scratch(q_elements);
+
+    gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+        .n_power = n_power,
+        .ntt_type = gpuntt::FORWARD,
+        .ntt_layout = gpuntt::PerPolynomial,
+        .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+        .zero_padding = false,
+        .stream = 0};
+
+    HEONGPU_CUDA_CHECK(cudaMemcpy(baseline_gpuntt_addend.data(),
+                                  device_addend.data(),
+                                  q_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToDevice));
+    heongpu::divide_round_lastq_extended_leveled_kernel<<<
+        dim3(n >> 8, q_size, 2), 256>>>(
+        device_input.data(), baseline_gpuntt_div.data(), device_moduli.data(),
+        device_half.data(), device_half_mod.data(), device_last_q_modinv.data(),
+        n_power, q_prime_size, q_size, q_prime_size, q_size, p_size);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+    heongpu::primitive::NTT_inplace(
+        baseline_gpuntt_div.data(), device_forward_roots.data(),
+        device_moduli.data(), cfg_ntt, 2 * q_size, q_size, nullptr);
+    heongpu::primitive::NTT_inplace(
+        baseline_gpuntt_addend.data(), device_forward_roots.data(),
+        device_moduli.data(), cfg_ntt, q_size, q_size, nullptr);
+    heongpu::addition_switchkey<<<dim3(n >> 8, q_size, 2), 256>>>(
+        baseline_gpuntt_div.data(), baseline_gpuntt_addend.data(),
+        baseline_output.data(), device_moduli.data(), n_power);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+    HEONGPU_CUDA_CHECK(cudaMemcpy(baseline_phantom_addend.data(),
+                                  device_addend.data(),
+                                  q_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToDevice));
+    heongpu::divide_round_lastq_extended_leveled_kernel<<<
+        dim3(n >> 8, q_size, 2), 256>>>(
+        device_input.data(), baseline_phantom_div.data(), device_moduli.data(),
+        device_half.data(), device_half_mod.data(), device_last_q_modinv.data(),
+        n_power, q_prime_size, q_size, q_prime_size, q_size, p_size);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+    heongpu::primitive::NTT_inplace(
+        baseline_phantom_div.data(), device_forward_roots.data(),
+        device_moduli.data(), cfg_ntt, 2 * q_size, q_size, tables);
+    heongpu::primitive::NTT_inplace(
+        baseline_phantom_addend.data(), device_forward_roots.data(),
+        device_moduli.data(), cfg_ntt, q_size, q_size, tables);
+    heongpu::addition_switchkey<<<dim3(n >> 8, q_size, 2), 256>>>(
+        baseline_phantom_div.data(), baseline_phantom_addend.data(),
+        baseline_phantom_output.data(), device_moduli.data(), n_power);
+    HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+    HEONGPU_CUDA_CHECK(cudaMemcpy(original_wrapper_addend.data(),
+                                  device_addend.data(),
+                                  q_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToDevice));
+    setenv("HEONGPU_USE_KSWITCH_P2", "0", 1);
+    heongpu::primitive::keyswitch_part2_fused_moddown_ntt(
+        device_input.data(), original_wrapper_addend.data(),
+        original_wrapper_scratch.data(), original_wrapper_output.data(),
+        device_forward_roots.data(), device_moduli.data(), cfg_ntt,
+        device_half.data(), device_half_mod.data(),
+        device_last_q_modinv.data(), n_power, q_prime_size, q_size,
+        q_prime_size, q_size, p_size, nullptr, 0);
+
+    HEONGPU_CUDA_CHECK(cudaMemcpy(keyswitch_part2_addend.data(),
+                                  device_addend.data(),
+                                  q_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToDevice));
+    setenv("HEONGPU_USE_KSWITCH_P2", "1", 1);
+    heongpu::primitive::keyswitch_part2_fused_moddown_ntt(
+        device_input.data(), keyswitch_part2_addend.data(),
+        keyswitch_part2_scratch.data(), keyswitch_part2_output.data(),
+        device_forward_roots.data(),
+        device_moduli.data(), cfg_ntt, device_half.data(),
+        device_half_mod.data(), device_last_q_modinv.data(), n_power,
+        q_prime_size, q_size, q_prime_size, q_size, p_size, nullptr, 0);
+
+    setenv("HEONGPU_USE_KSWITCH_P2", "1", 1);
+    heongpu::primitive::keyswitch_part2_fused_moddown_ntt(
+        device_input.data(), device_addend.data(),
+        keyswitch_part2_phantom_scratch.data(),
+        keyswitch_part2_phantom_output.data(), device_forward_roots.data(),
+        device_moduli.data(), cfg_ntt, device_half.data(),
+        device_half_mod.data(), device_last_q_modinv.data(), n_power,
+        q_prime_size, q_size, q_prime_size, q_size, p_size, tables, 0);
+
+    HEONGPU_CUDA_CHECK(cudaDeviceSynchronize());
+    std::vector<Data64> baseline_host(output_elements);
+    std::vector<Data64> baseline_phantom_host(output_elements);
+    std::vector<Data64> original_wrapper_host(output_elements);
+    std::vector<Data64> keyswitch_part2_host(output_elements);
+    std::vector<Data64> keyswitch_part2_phantom_host(output_elements);
+    HEONGPU_CUDA_CHECK(cudaMemcpy(baseline_host.data(), baseline_output.data(),
+                                  output_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(baseline_phantom_host.data(),
+                                  baseline_phantom_output.data(),
+                                  output_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(original_wrapper_host.data(),
+                                  original_wrapper_output.data(),
+                                  output_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(keyswitch_part2_host.data(),
+                                  keyswitch_part2_output.data(),
+                                  output_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+    HEONGPU_CUDA_CHECK(cudaMemcpy(keyswitch_part2_phantom_host.data(),
+                                  keyswitch_part2_phantom_output.data(),
+                                  output_elements * sizeof(Data64),
+                                  cudaMemcpyDeviceToHost));
+
+    const std::size_t phantom_mismatches = count_row_mismatches(
+        baseline_host, baseline_phantom_host, moduli, n, q_size);
+    const std::size_t original_wrapper_mismatches = count_row_mismatches(
+        baseline_host, original_wrapper_host, moduli, n, q_size);
+    const std::size_t keyswitch_part2_mismatches = count_row_mismatches(
+        baseline_host, keyswitch_part2_host, moduli, n, q_size);
+    const std::size_t keyswitch_part2_phantom_mismatches = count_row_mismatches(
+        baseline_host, keyswitch_part2_phantom_host, moduli, n, q_size);
+    const std::size_t mismatches =
+        phantom_mismatches + original_wrapper_mismatches +
+        keyswitch_part2_mismatches + keyswitch_part2_phantom_mismatches;
+
+    return {"KeySwitch_Part2", "part2", parameter.label,
+            mismatches == 0, static_cast<double>(mismatches), mismatches};
+}
+
 std::vector<Complex64> make_message(int slot_count)
 {
     std::vector<Complex64> message(static_cast<std::size_t>(slot_count));
@@ -604,8 +900,10 @@ std::vector<Complex64> decode_cipher(
 
 CheckResult run_operator_correctness(const ParameterSet& parameter,
                                      OperatorSurface surface,
-                                     bool use_phantom_ntt)
+                                     bool use_phantom_ntt,
+                                     bool use_bsgs_fusion)
 {
+    set_optimization_env(use_phantom_ntt, use_phantom_ntt, use_bsgs_fusion);
     const bool bootstrap = surface == OperatorSurface::Bootstrap;
     heongpu::HEContext<Scheme> context =
         make_context(parameter, use_phantom_ntt, bootstrap);
@@ -718,18 +1016,18 @@ CheckResult run_operator_correctness(const ParameterSet& parameter,
 
 void print_results(const std::vector<CheckResult>& results)
 {
-    std::cout << std::left << std::setw(18) << "group"
-              << std::setw(34) << "test"
+    std::cout << std::left << std::setw(22) << "group"
+              << std::setw(38) << "test"
               << std::setw(32) << "parameter"
               << std::right << std::setw(14) << "max/error"
               << std::setw(14) << "mismatch"
               << std::setw(10) << "status" << std::endl;
-    std::cout << std::string(122, '-') << std::endl;
+    std::cout << std::string(130, '-') << std::endl;
 
     for (const auto& result : results)
     {
-        std::cout << std::left << std::setw(18) << result.group
-                  << std::setw(34) << result.name
+        std::cout << std::left << std::setw(22) << result.group
+                  << std::setw(38) << result.name
                   << std::setw(32) << result.parameter
                   << std::right << std::setw(14) << std::scientific
                   << std::setprecision(3) << result.max_error
@@ -760,10 +1058,9 @@ int main()
             results.push_back(run_ntt_correctness(parameter, surface, true));
             results.push_back(run_ntt_correctness(parameter, surface, false));
         }
-        if (parameter.poly_modulus_degree <= 65536)
-        {
-            results.push_back(run_mod_kswitch_correctness(parameter));
-        }
+        results.push_back(run_mod_kswitch_correctness(parameter));
+        results.push_back(run_bsgs_fusion_correctness(parameter));
+        results.push_back(run_keyswitch_part2_correctness(parameter));
     }
 
     const OperatorSurface operator_surfaces[] = {
@@ -779,9 +1076,9 @@ int main()
         for (OperatorSurface surface : operator_surfaces)
         {
             results.push_back(
-                run_operator_correctness(parameter, surface, false));
+                run_operator_correctness(parameter, surface, false, false));
             results.push_back(
-                run_operator_correctness(parameter, surface, true));
+                run_operator_correctness(parameter, surface, true, true));
         }
     }
 
@@ -793,9 +1090,9 @@ int main()
     if (boot_parameter != parameters.end())
     {
         results.push_back(run_operator_correctness(
-            *boot_parameter, OperatorSurface::Bootstrap, false));
+            *boot_parameter, OperatorSurface::Bootstrap, false, false));
         results.push_back(run_operator_correctness(
-            *boot_parameter, OperatorSurface::Bootstrap, true));
+            *boot_parameter, OperatorSurface::Bootstrap, true, true));
     }
 
     print_results(results);

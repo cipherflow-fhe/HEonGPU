@@ -103,6 +103,30 @@ namespace ntt_plugin
         return order;
     }
 
+    inline std::vector<Data64> make_bsgs_input(
+        std::size_t n,
+        int row_count,
+        int limb_count,
+        const std::vector<Modulus64>& moduli,
+        std::uint64_t seed)
+    {
+        std::vector<Data64> data(n * static_cast<std::size_t>(row_count));
+        for (int row = 0; row < row_count; ++row)
+        {
+            const Data64 modulus =
+                moduli[static_cast<std::size_t>(row % limb_count)].value;
+            for (std::size_t coeff = 0; coeff < n; ++coeff)
+            {
+                data[static_cast<std::size_t>(row) * n + coeff] =
+                    static_cast<Data64>(
+                        (seed + coeff * 1315423911ULL +
+                         static_cast<std::size_t>(row) * 2654435761ULL) %
+                        modulus);
+            }
+        }
+        return data;
+    }
+
     inline std::vector<ParameterSet> make_parameters()
     {
         return {
@@ -261,6 +285,15 @@ namespace ntt_plugin
         set_coeff_modulus(context, parameter);
         context->generate();
         return context;
+    }
+
+    inline void set_optimization_env(bool use_mod_keyswitch,
+                                     bool use_keyswitch_part2,
+                                     bool use_bsgs_fusion)
+    {
+        setenv("HEONGPU_USE_MOD_KSWITCH", use_mod_keyswitch ? "1" : "0", 1);
+        setenv("HEONGPU_USE_KSWITCH_P2", use_keyswitch_part2 ? "1" : "0", 1);
+        setenv("HEONGPU_USE_BSGS_FUSION", use_bsgs_fusion ? "1" : "0", 1);
     }
 
     inline heongpu::BootstrappingConfigV2 make_bootstrapping_config(

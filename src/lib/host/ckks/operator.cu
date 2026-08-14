@@ -2385,34 +2385,14 @@ namespace heongpu
             current_rns_mod_count, new_prime_locations + location,
             context_->phantom_ntt_tables_);
 
-        divide_round_lastq_extended_leveled_kernel<<<
-            dim3((context_->n >> 8), current_decomp_count, 2), 256, 0,
-            stream>>>(
-            temp4_rotation, temp3_rotation, context_->modulus_->data(),
+        primitive::keyswitch_part2_fused_moddown_ntt( // @company CipherFlow
+            temp4_rotation, temp1_rotation, temp3_rotation, output_memory.data(),
+            context_->ntt_table_->data(), context_->modulus_->data(), cfg_ntt,
             context_->half_p_->data(), context_->half_mod_->data(),
             context_->last_q_modinv_->data(), context_->n_power,
             current_rns_mod_count, current_decomp_count, first_rns_mod_count,
-            first_decomp_count, context_->P_size);
-        HEONGPU_CUDA_CHECK(cudaGetLastError());
-
-        primitive::NTT_inplace( // @company CipherFlow
-            temp3_rotation, context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            2 * current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
-
-        // TODO: Fused the redundant kernels
-        // TODO: Merge with previous one
-        primitive::NTT_inplace( // @company CipherFlow
-            temp1_rotation, context_->ntt_table_->data(),
-            context_->modulus_->data(), cfg_ntt,
-            current_decomp_count, current_decomp_count,
-            context_->phantom_ntt_tables_);
-
-        addition_switchkey<<<dim3((context_->n >> 8), current_decomp_count, 2),
-                             256, 0, stream>>>(
-            temp3_rotation, temp1_rotation, output_memory.data(),
-            context_->modulus_->data(), context_->n_power);
+            first_decomp_count, context_->P_size, context_->phantom_ntt_tables_,
+            stream);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         output.memory_set(std::move(output_memory));
@@ -3712,23 +3692,12 @@ namespace heongpu
                     }
                 }
 
-                // Add precomputed P·c0 to component 0 of keyswitch output
-                {
-                    addition_pql_kernel<<<dim3((n >> 8), pql_count, 1), 256, 0,
-                                          stream>>>(
-                        temp4.data(), Pc0.data(), temp4.data(),
-                        pq_modulus_dev.data(), context_->n_power, pql_count);
-                    HEONGPU_CUDA_CHECK(cudaGetLastError());
-                }
-
-                // NTT-domain Galois permutation: avoid INTT->permute->NTT
-                {
-                    galois_permute_ntt_pql_kernel<<<
-                        dim3((n >> 8), pql_count, 2), 256, 0, stream>>>(
-                        temp4.data(), baby_results.data() + baby_offset,
-                        galois_elt, context_->n_power, pql_count);
-                    HEONGPU_CUDA_CHECK(cudaGetLastError());
-                }
+                primitive::bs_add_permute_fused( // @company CipherFlow
+                    temp4.data(), Pc0.data(),
+                    baby_results.data() + baby_offset, pq_modulus_dev.data(),
+                    galois_elt, context_->n_power, pql_count,
+                    context_->phantom_ntt_tables_, stream);
+                HEONGPU_CUDA_CHECK(cudaGetLastError());
             }
 
             // ============================================================
@@ -3886,32 +3855,12 @@ namespace heongpu
                     }
                 }
 
-                // Add u0 to component 0 of temp4_gs directly in NTT domain
-                {
-                    addition_pql_kernel<<<dim3((n >> 8), pql_count, 1), 256, 0,
-                                          stream>>>(
-                        temp4_gs.data(), u_pql.data(), temp4_gs.data(),
-                        pq_modulus_dev.data(), context_->n_power, pql_count);
-                    HEONGPU_CUDA_CHECK(cudaGetLastError());
-                }
-
-                // NTT-domain Galois permutation: avoid INTT->permute->NTT
-                {
-                    galois_permute_ntt_pql_kernel<<<
-                        dim3((n >> 8), pql_count, 2), 256, 0, stream>>>(
-                        temp4_gs.data(), permuted_gs.data(), galois_elt_gs,
-                        context_->n_power, pql_count);
-                    HEONGPU_CUDA_CHECK(cudaGetLastError());
-                }
-
-                // Accumulate
-                {
-                    addition_pql_kernel<<<dim3((n >> 8), pql_count, 2), 256, 0,
-                                          stream>>>(
-                        gs_accum.data(), permuted_gs.data(), gs_accum.data(),
-                        pq_modulus_dev.data(), context_->n_power, pql_count);
-                    HEONGPU_CUDA_CHECK(cudaGetLastError());
-                }
+                primitive::gs_add_permute_acc_fused( // @company CipherFlow
+                    temp4_gs.data(), u_pql.data(), gs_accum.data(),
+                    permuted_gs.data(), gs_accum.data(), pq_modulus_dev.data(),
+                    galois_elt_gs, context_->n_power, pql_count,
+                    context_->phantom_ntt_tables_, stream);
+                HEONGPU_CUDA_CHECK(cudaGetLastError());
             }
 
             // ============================================================
@@ -5245,7 +5194,7 @@ namespace heongpu
         std::unordered_map<int, Ciphertext<Scheme::CKKS>> powered_ciphers;
         powered_ciphers[1] = cipher;
 
-        // BSGS split: calculate optimal split point
+        // BSGS optimization: calculate optimal split point
         int poly_degree = pol.degree();
         int log_degree = std::ceil(std::log2(poly_degree));
         int log_split = optimal_split(log_degree);

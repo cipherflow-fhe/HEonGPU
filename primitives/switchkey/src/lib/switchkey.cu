@@ -196,6 +196,161 @@ namespace
         output[index + (current_rns_mod_count << n_power)] = ct_1_sum;
     }
 
+    __global__ void bs_add_permute_fused_kernel(
+        const Data64* input,
+        const Data64* addend,
+        Data64* output,
+        const Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int block_y = blockIdx.y;
+        int block_z = blockIdx.z;
+
+        int shift = 32 - n_power;
+        int two_N = 2 << n_power;
+        int br_j = __brev(idx) >> shift;
+        int exp_j = 2 * br_j + 1;
+        int new_exp =
+            static_cast<int>((static_cast<long long>(galois_elt) * exp_j) %
+                             two_N);
+        int src_idx = __brev((new_exp - 1) >> 1) >> shift;
+
+        int src_offset = src_idx + (block_y << n_power) +
+                         ((pql_count << n_power) * block_z);
+        int dst_offset =
+            idx + (block_y << n_power) + ((pql_count << n_power) * block_z);
+
+        Data64 value = input[src_offset];
+        if (block_z == 0)
+        {
+            value = OPERATOR_GPU_64::add(
+                value, addend[src_idx + (block_y << n_power)],
+                pq_modulus[block_y]);
+        }
+
+        output[dst_offset] = value;
+    }
+
+    __global__ void gs_add_permute_acc_fused_kernel(
+        const Data64* input,
+        const Data64* addend,
+        const Data64* accum,
+        Data64* output,
+        const Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int block_y = blockIdx.y;
+        int block_z = blockIdx.z;
+
+        int shift = 32 - n_power;
+        int two_N = 2 << n_power;
+        int br_j = __brev(idx) >> shift;
+        int exp_j = 2 * br_j + 1;
+        int new_exp =
+            static_cast<int>((static_cast<long long>(galois_elt) * exp_j) %
+                             two_N);
+        int src_idx = __brev((new_exp - 1) >> 1) >> shift;
+
+        int src_offset = src_idx + (block_y << n_power) +
+                         ((pql_count << n_power) * block_z);
+        int dst_offset =
+            idx + (block_y << n_power) + ((pql_count << n_power) * block_z);
+
+        Data64 value = input[src_offset];
+        if (block_z == 0)
+        {
+            value = OPERATOR_GPU_64::add(
+                value, addend[src_idx + (block_y << n_power)],
+                pq_modulus[block_y]);
+        }
+
+        output[dst_offset] =
+            OPERATOR_GPU_64::add(accum[dst_offset], value, pq_modulus[block_y]);
+    }
+
+    template <int PSize>
+    __global__ void divide_round_lastq_extended_leveled_add_first_kernel(
+        const Data64* input,
+        const Data64* addend_first,
+        Data64* output,
+        const Modulus64* modulus,
+        const Data64* half,
+        const Data64* half_mod,
+        const Data64* last_q_modinv,
+        int n_power,
+        int q_prime_size,
+        int q_size,
+        int first_q_prime_size,
+        int first_q_size,
+        int p_size)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        int block_y = blockIdx.y;
+        int block_z = blockIdx.z;
+
+        Data64 last_ct[15];
+        const int active_p_size = PSize == 0 ? p_size : PSize;
+#pragma unroll
+        for (int i = 0; i < active_p_size; ++i)
+        {
+            last_ct[i] =
+                input[idx + ((q_size + i) << n_power) +
+                      ((q_prime_size << n_power) * block_z)];
+        }
+
+        Data64 input_ = input[idx + (block_y << n_power) +
+                              ((q_prime_size << n_power) * block_z)];
+
+        int location = 0;
+#pragma unroll
+        for (int i = 0; i < active_p_size; ++i)
+        {
+            Data64 last_ct_add_half = last_ct[active_p_size - 1 - i];
+            last_ct_add_half =
+                OPERATOR_GPU_64::add(last_ct_add_half, half[i],
+                                     modulus[first_q_prime_size - 1 - i]);
+            for (int j = 0; j < (active_p_size - 1 - i); ++j)
+            {
+                Data64 temp = OPERATOR_GPU_64::reduce_forced(
+                    last_ct_add_half, modulus[first_q_size + j]);
+                temp = OPERATOR_GPU_64::sub(
+                    temp, half_mod[location + first_q_size + j],
+                    modulus[first_q_size + j]);
+                temp = OPERATOR_GPU_64::sub(last_ct[j], temp,
+                                            modulus[first_q_size + j]);
+                last_ct[j] = OPERATOR_GPU_64::mult(
+                    temp, last_q_modinv[location + first_q_size + j],
+                    modulus[first_q_size + j]);
+            }
+
+            Data64 temp = OPERATOR_GPU_64::reduce_forced(
+                last_ct_add_half, modulus[block_y]);
+            temp = OPERATOR_GPU_64::sub(temp, half_mod[location + block_y],
+                                        modulus[block_y]);
+            temp = OPERATOR_GPU_64::sub(input_, temp, modulus[block_y]);
+            input_ = OPERATOR_GPU_64::mult(
+                temp, last_q_modinv[location + block_y], modulus[block_y]);
+
+            location += first_q_prime_size - 1 - i;
+        }
+
+        if (block_z == 0)
+        {
+            input_ = OPERATOR_GPU_64::add(
+                input_, addend_first[idx + (block_y << n_power)],
+                modulus[block_y]);
+        }
+
+        output[idx + (block_y << n_power) + ((q_size << n_power) * block_z)] =
+            input_;
+    }
+
 } // namespace
 
 namespace switchkey
@@ -257,6 +412,102 @@ namespace switchkey
             input, relinkey, output, modulus, first_rns_mod_count,
             current_decomp_mod_count, current_rns_mod_count, iteration_count1,
             iteration_count2, level, n_power);
+    }
+
+    void bs_add_permute_fused(
+        const Data64* input,
+        const Data64* addend,
+        Data64* output,
+        const Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count,
+        cudaStream_t stream)
+    {
+        bs_add_permute_fused_kernel<<<
+            dim3((1 << n_power) >> 8, pql_count, 2), 256, 0, stream>>>(
+            input, addend, output, pq_modulus, galois_elt, n_power, pql_count);
+    }
+
+    void gs_add_permute_acc_fused(
+        const Data64* input,
+        const Data64* addend,
+        const Data64* accum,
+        Data64* output,
+        const Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count,
+        cudaStream_t stream)
+    {
+        gs_add_permute_acc_fused_kernel<<<
+            dim3((1 << n_power) >> 8, pql_count, 2), 256, 0, stream>>>(
+            input, addend, accum, output, pq_modulus, galois_elt, n_power,
+            pql_count);
+    }
+
+    void divide_round_lastq_extended_leveled_add_first(
+        const Data64* input,
+        const Data64* addend_first,
+        Data64* output,
+        const Modulus64* modulus,
+        const Data64* half,
+        const Data64* half_mod,
+        const Data64* last_q_modinv,
+        int n_power,
+        int q_prime_size,
+        int q_size,
+        int first_q_prime_size,
+        int first_q_size,
+        int p_size,
+        cudaStream_t stream)
+    {
+        const dim3 grid((1 << n_power) >> 8, q_size, 2);
+        switch (p_size)
+        {
+            case 1:
+                divide_round_lastq_extended_leveled_add_first_kernel<1>
+                    <<<grid, 256, 0, stream>>>(
+                        input, addend_first, output, modulus, half, half_mod,
+                        last_q_modinv, n_power, q_prime_size, q_size,
+                        first_q_prime_size, first_q_size, p_size);
+                return;
+            case 2:
+                divide_round_lastq_extended_leveled_add_first_kernel<2>
+                    <<<grid, 256, 0, stream>>>(
+                        input, addend_first, output, modulus, half, half_mod,
+                        last_q_modinv, n_power, q_prime_size, q_size,
+                        first_q_prime_size, first_q_size, p_size);
+                return;
+            case 3:
+                divide_round_lastq_extended_leveled_add_first_kernel<3>
+                    <<<grid, 256, 0, stream>>>(
+                        input, addend_first, output, modulus, half, half_mod,
+                        last_q_modinv, n_power, q_prime_size, q_size,
+                        first_q_prime_size, first_q_size, p_size);
+                return;
+            case 4:
+                divide_round_lastq_extended_leveled_add_first_kernel<4>
+                    <<<grid, 256, 0, stream>>>(
+                        input, addend_first, output, modulus, half, half_mod,
+                        last_q_modinv, n_power, q_prime_size, q_size,
+                        first_q_prime_size, first_q_size, p_size);
+                return;
+            case 5:
+                divide_round_lastq_extended_leveled_add_first_kernel<5>
+                    <<<grid, 256, 0, stream>>>(
+                        input, addend_first, output, modulus, half, half_mod,
+                        last_q_modinv, n_power, q_prime_size, q_size,
+                        first_q_prime_size, first_q_size, p_size);
+                return;
+            default:
+                divide_round_lastq_extended_leveled_add_first_kernel<0>
+                    <<<grid, 256, 0, stream>>>(
+                        input, addend_first, output, modulus, half, half_mod,
+                        last_q_modinv, n_power, q_prime_size, q_size,
+                        first_q_prime_size, first_q_size, p_size);
+                return;
+        }
     }
 
 } // namespace switchkey

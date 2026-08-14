@@ -46,6 +46,43 @@ namespace switchkey
         int n_power,
         cudaStream_t stream);
 
+    void bs_add_permute_fused(
+        const Data64* input,
+        const Data64* addend,
+        Data64* output,
+        const Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count,
+        cudaStream_t stream);
+
+    void gs_add_permute_acc_fused(
+        const Data64* input,
+        const Data64* addend,
+        const Data64* accum,
+        Data64* output,
+        const Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count,
+        cudaStream_t stream);
+
+    void divide_round_lastq_extended_leveled_add_first(
+        const Data64* input,
+        const Data64* addend_first,
+        Data64* output,
+        const Modulus64* modulus,
+        const Data64* half,
+        const Data64* half_mod,
+        const Data64* last_q_modinv,
+        int n_power,
+        int q_prime_size,
+        int q_size,
+        int first_q_prime_size,
+        int first_q_size,
+        int p_size,
+        cudaStream_t stream);
+
 } // namespace switchkey
 } // namespace heongpu
 

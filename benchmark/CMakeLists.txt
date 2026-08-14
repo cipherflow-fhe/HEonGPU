@@ -15,7 +15,7 @@ set(EXECUTABLES
 
 function(add_benchmark exe source)
     add_executable(${exe} ${source})
-    if(exe STREQUAL ntt_plugin_correctness)
+    if(exe STREQUAL ntt_plugin_benchmark OR exe STREQUAL ntt_plugin_correctness)
         set_source_files_properties(${source} PROPERTIES LANGUAGE CUDA)
     endif()
     target_link_libraries(${exe} PRIVATE heongpu CUDA::cudart)
