@@ -57,6 +57,49 @@ namespace primitive
         const std::shared_ptr<PhantomNttTables>& phantom_tables,
         cudaStream_t stream);
 
+    void bs_add_permute_fused(
+        Data64* input,
+        Data64* addend,
+        Data64* output,
+        Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        cudaStream_t stream);
+
+    void gs_add_permute_acc_fused(
+        Data64* input,
+        Data64* addend,
+        Data64* accum,
+        Data64* scratch,
+        Data64* output,
+        Modulus64* pq_modulus,
+        int galois_elt,
+        int n_power,
+        int pql_count,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        cudaStream_t stream);
+
+    void keyswitch_part2_fused_moddown_ntt(
+        Data64* input,
+        Data64* addend_first,
+        Data64* output,
+        Root64* roots,
+        Modulus64* modulus,
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt,
+        Data64* half,
+        Data64* half_mod,
+        Data64* last_q_modinv,
+        int n_power,
+        int q_prime_size,
+        int q_size,
+        int first_q_prime_size,
+        int first_q_size,
+        int p_size,
+        const std::shared_ptr<PhantomNttTables>& phantom_tables,
+        cudaStream_t stream);
+
 } // namespace primitive
 } // namespace heongpu
 
