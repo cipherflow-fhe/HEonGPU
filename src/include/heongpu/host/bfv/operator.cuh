@@ -9,6 +9,7 @@
 #include "gpuntt/ntt_merge/ntt.cuh"
 #include "gpufft/fft.cuh"
 #include <heongpu/kernel/addition.cuh>
+#include <heongpu/kernel/encoding.cuh>
 #include <heongpu/kernel/multiplication.cuh>
 #include <heongpu/kernel/switchkey.cuh>
 #include <heongpu/kernel/keygeneration.cuh>
@@ -19,6 +20,10 @@
 #include <heongpu/host/bfv/plaintext.cuh>
 #include <heongpu/host/bfv/ciphertext.cuh>
 #include <heongpu/host/bfv/evaluationkey.cuh>
+
+#include <cmath>
+#include <cstdint>
+#include <vector>
 
 namespace heongpu
 {
@@ -177,6 +182,7 @@ namespace heongpu
                                         context_->Q_size;
                                     output_.cipher_size_ = 2;
                                     output_.depth_ = input1_.depth_; // @company CipherFlow
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
                                     output_.rescale_required_ =
@@ -191,6 +197,18 @@ namespace heongpu
                 },
                 options, (&input1 == &output));
         }
+
+        // @company CipherFlow
+        __host__ void
+        add_plain(Ciphertext<Scheme::BFV>& input1, std::int64_t input2,
+                  Ciphertext<Scheme::BFV>& output,
+                  const ExecutionOptions& options = ExecutionOptions());
+
+        // @company CipherFlow
+        __host__ void
+        add_plain(Ciphertext<Scheme::BFV>& input1, std::uint64_t input2,
+                  Ciphertext<Scheme::BFV>& output,
+                  const ExecutionOptions& options = ExecutionOptions());
 
         /**
          * @brief Adds a plaintext to a ciphertext in-place, modifying the input
@@ -285,6 +303,7 @@ namespace heongpu
                                         context_->Q_size;
                                     output_.cipher_size_ = 2;
                                     output_.depth_ = input1_.depth_; // @company CipherFlow
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
                                     output_.rescale_required_ =
@@ -299,6 +318,18 @@ namespace heongpu
                 },
                 options, (&input1 == &output));
         }
+
+        // @company CipherFlow
+        __host__ void
+        sub_plain(Ciphertext<Scheme::BFV>& input1, std::int64_t input2,
+                  Ciphertext<Scheme::BFV>& output,
+                  const ExecutionOptions& options = ExecutionOptions());
+
+        // @company CipherFlow
+        __host__ void
+        sub_plain(Ciphertext<Scheme::BFV>& input1, std::uint64_t input2,
+                  Ciphertext<Scheme::BFV>& output,
+                  const ExecutionOptions& options = ExecutionOptions());
 
         /**
          * @brief Subtracts a plaintext from a ciphertext in-place, modifying
@@ -385,6 +416,15 @@ namespace heongpu
                                         input1_.coeff_modulus_count_;
                                     output_.cipher_size_ = 3;
                                     output_.depth_ = input1_.depth_; // @company CipherFlow
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                    Data64 plain_mod = context_->plain_modulus_.value; // @company CipherFlow
+                                    Data64 q_mod_t = context_->Q_mod_t_host_[input1_.depth_] % plain_mod; // @company CipherFlow
+                                    Data64 q_mod_t_neg = (plain_mod - q_mod_t) % plain_mod; // @company CipherFlow
+                                    Data64 inv_q_mod_t_neg = modInverse(q_mod_t_neg, plain_mod); // @company CipherFlow
+                                    Data64 input1_scale = static_cast<Data64>(std::llround(input1_.scale())) % plain_mod; // @company CipherFlow
+                                    Data64 input2_scale = static_cast<Data64>(std::llround(input2_.scale())) % plain_mod; // @company CipherFlow
+                                    Data64 scale_product = static_cast<Data64>((static_cast<unsigned __int128>(input1_scale) * input2_scale) % plain_mod); // @company CipherFlow
+                                    output_.metadata_.scale = static_cast<double>(static_cast<Data64>((static_cast<unsigned __int128>(scale_product) * inv_q_mod_t_neg) % plain_mod)); // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
                                     output_.rescale_required_ = false; // @company CipherFlow
@@ -482,6 +522,7 @@ namespace heongpu
                                         context_->Q_size;
                                     output_.cipher_size_ = 2;
                                     output_.depth_ = input1_.depth_; // @company CipherFlow
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
                                     output_.in_ntt_domain_ =
                                         input1_.in_ntt_domain_;
                                     output_.rescale_required_ = input1_.rescale_required_; // @company CipherFlow
@@ -495,6 +536,18 @@ namespace heongpu
                 },
                 options, (&input1 == &output));
         }
+
+        // @company CipherFlow
+        __host__ void
+        multiply_plain(Ciphertext<Scheme::BFV>& input1, std::int64_t input2,
+                       Ciphertext<Scheme::BFV>& output,
+                       const ExecutionOptions& options = ExecutionOptions());
+
+        // @company CipherFlow
+        __host__ void
+        multiply_plain(Ciphertext<Scheme::BFV>& input1, std::uint64_t input2,
+                       Ciphertext<Scheme::BFV>& output,
+                       const ExecutionOptions& options = ExecutionOptions());
 
         /**
          * @brief Multiplies a plaintext with a ciphertext in-place, modifying
@@ -598,6 +651,7 @@ namespace heongpu
                             output_.ring_size_ = context_->n;
                             output_.coeff_modulus_count_ = context_->Q_size;
                             output_.depth_ = input1_.depth_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             output_.rescale_required_ = (output_.coeff_modulus_count_ - (output_.depth_ + 1) > 0) ? true: false;
                             output_.ciphertext_generated_ = true;
@@ -769,6 +823,7 @@ namespace heongpu
                             output_.coeff_modulus_count_ = context_->Q_size;
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_; // @company CipherFlow
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             output_.rescale_required_ =
                                 input1_.rescale_required_; // @company CipherFlow
@@ -875,6 +930,7 @@ namespace heongpu
                             output_.coeff_modulus_count_ = context_->Q_size;
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_; // @company CipherFlow
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             output_.rescale_required_ =
                                 input1_.rescale_required_; // @company CipherFlow
@@ -905,6 +961,11 @@ namespace heongpu
             }
 
             int current_decomp_count = context_->Q_size - input1.depth_;
+            Data64 plain_mod = context_->plain_modulus_.value; 
+            Data64 input_scale = static_cast<Data64>(std::llround(input1.scale())) % plain_mod; 
+            Data64 rescale_factor = context_->prime_vector_[input1.level()].value % plain_mod; 
+            Data64 rescale_factor_inv = modInverse(rescale_factor, plain_mod); 
+            Data64 output_scale = static_cast<Data64>((static_cast<unsigned __int128>(input_scale) * rescale_factor_inv) % plain_mod); 
 
             if (input1.memory_size() < (2 * context_->n * current_decomp_count))
             {
@@ -915,6 +976,9 @@ namespace heongpu
                 input1, [&](Ciphertext<Scheme::BFV>& input1_)
                 { rescale_inplace_bfv_leveled(input1_, options.stream_); },
                 options, true);
+
+            input1.metadata_.scale = static_cast<double>(output_scale); 
+            input1.metadata_.level--; 
 
             if (current_decomp_count - 1 <= 1) {
                 input1.rescale_required_ = false;
@@ -968,7 +1032,14 @@ namespace heongpu
                             output_.ring_size_ = context_->n;
                             output_.coeff_modulus_count_ = context_->Q_size;
                             output_.cipher_size_ = 2;
-                            output_.depth_ = input1_.depth_+1; 
+                            output_.depth_ = input1_.depth_+1;
+                            output_.metadata_ = input1_.metadata_; 
+                            Data64 plain_mod = context_->plain_modulus_.value; 
+                            Data64 input_scale = static_cast<Data64>(std::llround(input1_.scale())) % plain_mod; 
+                            Data64 rescale_factor = context_->prime_vector_[input1_.level()].value % plain_mod; 
+                            Data64 rescale_factor_inv = modInverse(rescale_factor, plain_mod); 
+                            output_.metadata_.scale = static_cast<double>(static_cast<Data64>((static_cast<unsigned __int128>(input_scale) * rescale_factor_inv) % plain_mod)); 
+                            output_.metadata_.level--; 
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             if (current_decomp_count - 1 <= 1) {
                                 output_.rescale_required_ = false;
@@ -990,6 +1061,66 @@ namespace heongpu
         __host__ void
         rescale_bfv_leveled(Ciphertext<Scheme::BFV>& input1, Ciphertext<Scheme::BFV>& output,
                             const cudaStream_t stream);
+
+        // @company CipherFlow
+        __host__ void
+        mod_drop(Ciphertext<Scheme::BFV>& input1,
+                 Ciphertext<Scheme::BFV>& output, int drop_level = 1,
+                 const ExecutionOptions& options = ExecutionOptions())
+        {
+            if (drop_level <= 0)
+            {
+                throw std::invalid_argument("drop_level must be positive");
+            }
+
+            int current_decomp_count = context_->Q_size - input1.depth_;
+            if (drop_level >= current_decomp_count)
+            {
+                throw std::logic_error("Ciphertext modulus can not be dropped!");
+            }
+
+            int cipher_size = input1.cipher_size_;
+            if (input1.memory_size() <
+                (cipher_size * context_->n * current_decomp_count))
+            {
+                throw std::invalid_argument("Invalid Ciphertexts size!");
+            }
+
+            input_storage_manager(
+                input1,
+                [&](Ciphertext<Scheme::BFV>& input1_)
+                {
+                    output_storage_manager(
+                        output,
+                        [&](Ciphertext<Scheme::BFV>& output_)
+                        {
+                            mod_drop_bfv_leveled(input1_, output_, drop_level,
+                                                 options.stream_);
+
+                            output_.scheme_ = context_->scheme_;
+                            output_.ring_size_ = context_->n;
+                            output_.coeff_modulus_count_ = context_->Q_size;
+                            output_.cipher_size_ = input1_.cipher_size_;
+                            output_.depth_ = input1_.depth_ + drop_level;
+                            output_.metadata_ = input1_.metadata_; 
+                            output_.metadata_.level -= drop_level; 
+                            output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                            output_.rescale_required_ =
+                                (context_->Q_size - output_.depth_ > 1);
+                            output_.relinearization_required_ =
+                                input1_.relinearization_required_;
+                            output_.ciphertext_generated_ = true;
+                        },
+                        options);
+                },
+                options, (&input1 == &output));
+        }
+
+        // @company CipherFlow
+        __host__ void
+        mod_drop_bfv_leveled(Ciphertext<Scheme::BFV>& input1,
+                             Ciphertext<Scheme::BFV>& output, int drop_level,
+                             const cudaStream_t stream);
 
         /**
          * @brief Applies a Galois automorphism to the ciphertext and stores the
@@ -1069,6 +1200,7 @@ namespace heongpu
                             output_.coeff_modulus_count_ = context_->Q_size;
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_; // @company CipherFlow
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             output_.rescale_required_ =
                                 input1_.rescale_required_; // @company CipherFlow
@@ -1174,6 +1306,7 @@ namespace heongpu
                             output_.coeff_modulus_count_ = context_->Q_size;
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_; // @company CipherFlow
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                             output_.rescale_required_ =
                                 input1_.rescale_required_; // @company CipherFlow
@@ -1432,6 +1565,12 @@ namespace heongpu
                                             Plaintext<Scheme::BFV>& input2,
                                             const cudaStream_t stream);
 
+        // @company CipherFlow
+        __host__ void add_plain_bfv(Ciphertext<Scheme::BFV>& input1,
+                                    Data64 input2,
+                                    Ciphertext<Scheme::BFV>& output,
+                                    const cudaStream_t stream);
+
         __host__ void sub_plain_bfv(Ciphertext<Scheme::BFV>& input1,
                                     Plaintext<Scheme::BFV>& input2,
                                     Ciphertext<Scheme::BFV>& output,
@@ -1441,6 +1580,12 @@ namespace heongpu
                                             Plaintext<Scheme::BFV>& input2,
                                             const cudaStream_t stream);
 
+        // @company CipherFlow
+        __host__ void sub_plain_bfv(Ciphertext<Scheme::BFV>& input1,
+                                    Data64 input2,
+                                    Ciphertext<Scheme::BFV>& output,
+                                    const cudaStream_t stream);
+
         __host__ void multiply_bfv(Ciphertext<Scheme::BFV>& input1,
                                    Ciphertext<Scheme::BFV>& input2,
                                    Ciphertext<Scheme::BFV>& output,
@@ -1448,6 +1593,12 @@ namespace heongpu
 
         __host__ void multiply_plain_bfv(Ciphertext<Scheme::BFV>& input1,
                                          Plaintext<Scheme::BFV>& input2,
+                                         Ciphertext<Scheme::BFV>& output,
+                                         const cudaStream_t stream);
+
+        // @company CipherFlow
+        __host__ void multiply_plain_bfv(Ciphertext<Scheme::BFV>& input1,
+                                         Data64 input2,
                                          Ciphertext<Scheme::BFV>& output,
                                          const cudaStream_t stream);
 

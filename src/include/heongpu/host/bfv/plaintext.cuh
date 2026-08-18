@@ -7,6 +7,7 @@
 #define HEONGPU_BFV_PLAINTEXT_H
 
 #include <heongpu/host/bfv/context.cuh>
+#include <heongpu/util/metadata.h>
 
 namespace heongpu
 {
@@ -101,6 +102,22 @@ namespace heongpu
          */
         inline int size() const noexcept { return plain_size_; }
 
+        /**
+         * @company CipherFlow
+         */
+        inline double scale() const noexcept { return metadata_.scale; }
+
+        /**
+         * @company CipherFlow
+         */
+        inline void set_scale(double scale) noexcept { metadata_.scale = scale; }
+
+        // @company CipherFlow
+        inline void set_log_slot_count(int log_slot_count) noexcept
+        {
+            metadata_.log_slot_count = log_slot_count;
+        }
+
         // @company CipherFlow
         inline int coeff_modulus_count() const noexcept
         {
@@ -110,13 +127,13 @@ namespace heongpu
         // @company CipherFlow
         inline int level() const noexcept
         {
-            return coeff_modulus_count_ - (depth_ + 1);
+            return metadata_.level;
         }
 
         // @company CipherFlow
-        inline void set_ringt(bool is_ringt) 
+        inline void set_ringt(bool is_ringt)
         {
-            this->is_ringt_ = is_ringt;
+            metadata_.is_ringt = is_ringt;
         }
 
         // @company CipherFlow
@@ -151,7 +168,8 @@ namespace heongpu
             : scheme_(copy.scheme_), plain_size_(copy.plain_size_),
               in_ntt_domain_(copy.in_ntt_domain_),
               storage_type_(copy.storage_type_),
-              coeff_modulus_count_(copy.coeff_modulus_count_), is_ringt_(copy.is_ringt_), // @company CipherFlow
+              coeff_modulus_count_(copy.coeff_modulus_count_), // @company CipherFlow
+              metadata_(copy.metadata_), // @company CipherFlow
               depth_(copy.depth_),  // @company CipherFlow
               plaintext_generated_(copy.plaintext_generated_)
         {
@@ -180,7 +198,7 @@ namespace heongpu
               in_ntt_domain_(std::move(assign.in_ntt_domain_)),
               storage_type_(std::move(assign.storage_type_)),
               coeff_modulus_count_(std::move(assign.coeff_modulus_count_)), // @company CipherFlow
-              is_ringt_(std::move(assign.is_ringt_)), // @company CipherFlow
+              metadata_(std::move(assign.metadata_)), // @company CipherFlow
               depth_(std::move(assign.depth_)), // @company CipherFlow
               plaintext_generated_(std::move(assign.plaintext_generated_)),
               device_locations_(std::move(assign.device_locations_)),
@@ -196,9 +214,9 @@ namespace heongpu
                 plain_size_ = copy.plain_size_;
                 in_ntt_domain_ = copy.in_ntt_domain_;
                 storage_type_ = copy.storage_type_;
-                coeff_modulus_count_ = copy.coeff_modulus_count_, // @company CipherFlow
-                is_ringt_ = copy.is_ringt_, // @company CipherFlow
-                depth_ = copy.depth_, // @company CipherFlow
+                coeff_modulus_count_ = copy.coeff_modulus_count_; // @company CipherFlow
+                metadata_ = copy.metadata_; // @company CipherFlow
+                depth_ = copy.depth_; // @company CipherFlow
                 plaintext_generated_ = copy.plaintext_generated_;
 
                 if (copy.storage_type_ == storage_type::DEVICE)
@@ -231,9 +249,9 @@ namespace heongpu
                 plain_size_ = std::move(assign.plain_size_);
                 in_ntt_domain_ = std::move(assign.in_ntt_domain_);
                 storage_type_ = std::move(assign.storage_type_);
-                coeff_modulus_count_ = std::move(assign.coeff_modulus_count_), // @company CipherFlow
-                is_ringt_ = std::move(assign.is_ringt_), // @company CipherFlow
-                depth_ = std::move(assign.depth_), // @company CipherFlow
+                coeff_modulus_count_ = std::move(assign.coeff_modulus_count_); // @company CipherFlow
+                metadata_ = std::move(assign.metadata_); // @company CipherFlow
+                depth_ = std::move(assign.depth_); // @company CipherFlow
                 plaintext_generated_ = std::move(assign.plaintext_generated_);
 
                 device_locations_ = std::move(assign.device_locations_);
@@ -254,7 +272,7 @@ namespace heongpu
         storage_type storage_type_;
 
         int coeff_modulus_count_; // @company CipherFlow
-        bool is_ringt_ ; // @company CipherFlow
+        Metadata metadata_; // @company CipherFlow
         int depth_; // @company CipherFlow
 
         bool plaintext_generated_ = false;

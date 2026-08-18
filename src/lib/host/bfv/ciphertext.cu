@@ -21,6 +21,10 @@ namespace heongpu
         cipher_size_ = 2;
         ring_size_ = context->n;
         depth_ = 0; // @company CipherFlow
+        metadata_.is_ringt = false; // @company CipherFlow
+        metadata_.level = coeff_modulus_count_ - (depth_ + 1); // @company CipherFlow
+        metadata_.scale = 1.0; // @company CipherFlow
+        metadata_.log_slot_count = -1; // @company CipherFlow
 
         int cipher_memory_size =
             cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_; // @company CipherFlow
@@ -67,6 +71,10 @@ namespace heongpu
         cipher_size_ = 2;
         ring_size_ = context->n;
         depth_ = coeff_modulus_count_ - (level + 1);
+        metadata_.is_ringt = false;
+        metadata_.level = level;
+        metadata_.scale = 1.0;
+        metadata_.log_slot_count = -1;
 
         int cipher_memory_size =
             cipher_size_ * (coeff_modulus_count_ - depth_) * ring_size_;
@@ -236,6 +244,8 @@ namespace heongpu
 
             os.write((char*) &depth_, sizeof(depth_)); // @company CipherFlow
 
+            os.write((char*) &metadata_, sizeof(metadata_)); // @company CipherFlow
+
             os.write((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
 
             os.write((char*) &storage_type_, sizeof(storage_type_));
@@ -299,6 +309,8 @@ namespace heongpu
             is.read((char*) &cipher_size_, sizeof(cipher_size_));
 
             is.read((char*) &depth_, sizeof(depth_)); // @company CipherFlow
+
+            is.read((char*) &metadata_, sizeof(metadata_)); // @company CipherFlow
 
             is.read((char*) &in_ntt_domain_, sizeof(in_ntt_domain_));
 

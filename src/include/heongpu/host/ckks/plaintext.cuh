@@ -7,6 +7,7 @@
 #define HEONGPU_CKKS_PLAINTEXT_H
 
 #include <heongpu/host/ckks/context.cuh>
+#include <heongpu/util/metadata.h>
 
 namespace heongpu
 {
@@ -127,6 +128,15 @@ namespace heongpu
          */
         inline double scale() const noexcept { return scale_; }
 
+        /**
+         * @company CipherFlow
+         */
+        inline void set_scale(double scale) noexcept
+        {
+            scale_ = scale;
+            metadata_.scale = scale; // @company CipherFlow
+        }
+
         // @company CipherFlow
         inline int coeff_modulus_count() const noexcept
         {
@@ -136,13 +146,42 @@ namespace heongpu
         // @company CipherFlow
         inline int level() const noexcept
         {
-            return coeff_modulus_count_ - (depth_ + 1);
+            return metadata_.level;
         }
 
         // @company CipherFlow
-        inline void set_ringt(bool is_ringt) 
+        inline void set_ringt(bool is_ringt)
         {
-            this->is_ringt_ = is_ringt;
+            metadata_.is_ringt = is_ringt; 
+        }
+
+        /**
+         * @company CipherFlow
+         */
+        inline int get_slot_count() const noexcept
+        {
+            return 1 << metadata_.log_slot_count;
+        } 
+
+        /**
+         * @company CipherFlow
+         */
+        inline int get_log_slot_count() const noexcept { return metadata_.log_slot_count; } 
+
+        /**
+         * @company CipherFlow
+         */
+        inline void set_log_slot_count(int log_sc)
+        {
+            metadata_.log_slot_count = log_sc;
+            int log_sparse_n = log_sc + 1; 
+            int sparse_n = 1 << log_sparse_n; 
+            std::vector<Data64> base_q_psi_sparse =
+                generate_primitive_root_of_unity(sparse_n, context_->prime_vector_); 
+            std::vector<Root64> sparse_ntt_table =
+                generate_ntt_table(base_q_psi_sparse, context_->prime_vector_, log_sparse_n); 
+            ntt_table_slot_ =
+                std::make_shared<DeviceVector<Root64>>(sparse_ntt_table); 
         }
 
         /**
@@ -173,8 +212,10 @@ namespace heongpu
               depth_(copy.depth_), scale_(copy.scale_),
               in_ntt_domain_(copy.in_ntt_domain_), encoding_(copy.encoding_),
               storage_type_(copy.storage_type_),
+              context_(copy.context_), // @company CipherFlow
               coeff_modulus_count_(copy.coeff_modulus_count_), // @company CipherFlow
-              is_ringt_(copy.is_ringt_), // @company CipherFlow
+              metadata_(copy.metadata_), // @company CipherFlow
+              ntt_table_slot_(copy.ntt_table_slot_), // @company CipherFlow
               plaintext_generated_(copy.plaintext_generated_)
         {
             if (copy.storage_type_ == storage_type::DEVICE)
@@ -204,8 +245,10 @@ namespace heongpu
               in_ntt_domain_(std::move(assign.in_ntt_domain_)),
               encoding_(std::move(assign.encoding_)),
               storage_type_(std::move(assign.storage_type_)),
+              context_(std::move(assign.context_)), // @company CipherFlow
               coeff_modulus_count_(std::move(assign.coeff_modulus_count_)), // @company CipherFlow
-              is_ringt_(std::move(assign.is_ringt_)), // @company CipherFlow
+              metadata_(std::move(assign.metadata_)), // @company CipherFlow
+              ntt_table_slot_(std::move(assign.ntt_table_slot_)), // @company CipherFlow
               plaintext_generated_(std::move(assign.plaintext_generated_)),
               device_locations_(std::move(assign.device_locations_)),
               host_locations_(std::move(assign.host_locations_))
@@ -223,8 +266,10 @@ namespace heongpu
                 in_ntt_domain_ = copy.in_ntt_domain_;
                 encoding_ = copy.encoding_;
                 storage_type_ = copy.storage_type_;
+                context_ = copy.context_; // @company CipherFlow
                 coeff_modulus_count_ = copy.coeff_modulus_count_; // @company CipherFlow
-                is_ringt_ = copy.is_ringt_; // @company CipherFlow
+                metadata_ = copy.metadata_; // @company CipherFlow
+                ntt_table_slot_ = copy.ntt_table_slot_; // @company CipherFlow
                 plaintext_generated_ = copy.plaintext_generated_;
 
                 if (copy.storage_type_ == storage_type::DEVICE)
@@ -258,11 +303,13 @@ namespace heongpu
                 in_ntt_domain_ = std::move(assign.in_ntt_domain_);
                 encoding_ = std::move(assign.encoding_);
                 storage_type_ = std::move(assign.storage_type_);
+                context_ = std::move(assign.context_); // @company CipherFlow
                 plaintext_generated_ = std::move(assign.plaintext_generated_);
                 depth_ = std::move(assign.depth_);
                 scale_ = std::move(assign.scale_);
                 coeff_modulus_count_ = std::move(assign.coeff_modulus_count_); // @company CipherFlow
-                is_ringt_ = std::move(assign.is_ringt_); // @company CipherFlow
+                metadata_ = std::move(assign.metadata_); // @company CipherFlow
+                ntt_table_slot_ = std::move(assign.ntt_table_slot_); // @company CipherFlow
                 device_locations_ = std::move(assign.device_locations_);
                 host_locations_ = std::move(assign.host_locations_);
             }
@@ -283,9 +330,11 @@ namespace heongpu
         bool in_ntt_domain_ = false;
         encoding encoding_ = encoding::SLOT;
         storage_type storage_type_;
+        HEContext<Scheme::CKKS> context_; // @company CipherFlow
 
         int coeff_modulus_count_; // @company CipherFlow
-        bool is_ringt_ = false ; // @company CipherFlow
+        Metadata metadata_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Root64>> ntt_table_slot_; // @company CipherFlow
 
         bool plaintext_generated_ = false;
 

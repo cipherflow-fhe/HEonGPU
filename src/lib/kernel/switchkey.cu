@@ -1435,6 +1435,25 @@ namespace heongpu
         output[location_out] = in_reg;
     }
 
+    // @company CipherFlow
+    __global__ void
+    global_memory_drop_level_offset_kernel(Data64* input, Data64* output,
+                                           int current_decomposition_count,
+                                           int drop_level, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // Ring Sizes
+        int block_y = blockIdx.y; // Output decomposition modulus count
+        int block_z = blockIdx.z; // Cipher Size
+
+        int output_decomposition_count = current_decomposition_count - drop_level;
+        int location_in = idx + (block_y << n_power) +
+                          ((current_decomposition_count << n_power) * block_z);
+        int location_out = idx + (block_y << n_power) +
+                           ((output_decomposition_count << n_power) * block_z);
+
+        output[location_out] = input[location_in];
+    }
+
     __global__ void
     cipher_broadcast_switchkey_kernel(Data64* cipher, Data64* out0,
                                       Data64* out1, Modulus64* modulus,

@@ -101,6 +101,10 @@ namespace heongpu
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
                     plain.encoding_ = type;
+                    plain.metadata_.is_ringt = false; // @company CipherFlow
+                    plain.metadata_.level = context_->Q_size - 1; // @company CipherFlow
+                    plain.metadata_.scale = plain.scale_; // @company CipherFlow
+                    plain.metadata_.log_slot_count = log_slot_count_; // @company CipherFlow
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -132,10 +136,13 @@ namespace heongpu
 
                     plain.plain_size_ = slot_count_ * 2;
                     plain.scheme_ = context_->scheme_;
-                    plain.depth_ = context_->Q_size-1;
+                    plain.depth_ = context_->Q_size - 1;
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = false;
-                    plain.is_ringt_ = true;
+                    plain.metadata_.is_ringt = true; 
+                    plain.metadata_.level = 0; 
+                    plain.metadata_.scale = plain.scale_; 
+                    plain.metadata_.log_slot_count = log_slot_count_; 
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -202,6 +209,10 @@ namespace heongpu
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
                     plain.encoding_ = type;
+                    plain.metadata_.is_ringt = false; // @company CipherFlow
+                    plain.metadata_.level = context_->Q_size - 1; // @company CipherFlow
+                    plain.metadata_.scale = plain.scale_; // @company CipherFlow
+                    plain.metadata_.log_slot_count = log_slot_count_; // @company CipherFlow
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -253,6 +264,10 @@ namespace heongpu
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
                     plain.encoding_ = type;
+                    plain.metadata_.is_ringt = false; // @company CipherFlow
+                    plain.metadata_.level = context_->Q_size - 1; // @company CipherFlow
+                    plain.metadata_.scale = plain.scale_; // @company CipherFlow
+                    plain.metadata_.log_slot_count = log_slot_count_; // @company CipherFlow
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -302,6 +317,10 @@ namespace heongpu
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
                     plain.encoding_ = type;
+                    plain.metadata_.is_ringt = false; // @company CipherFlow
+                    plain.metadata_.level = context_->Q_size - 1; // @company CipherFlow
+                    plain.metadata_.scale = plain.scale_; // @company CipherFlow
+                    plain.metadata_.log_slot_count = log_slot_count_; // @company CipherFlow
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -349,6 +368,10 @@ namespace heongpu
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
                     plain.encoding_ = type;
+                    plain.metadata_.is_ringt = false; // @company CipherFlow
+                    plain.metadata_.level = context_->Q_size - 1; // @company CipherFlow
+                    plain.metadata_.scale = plain.scale_; // @company CipherFlow
+                    plain.metadata_.log_slot_count = log_slot_count_; // @company CipherFlow
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -394,6 +417,10 @@ namespace heongpu
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
                     plain.encoding_ = type;
+                    plain.metadata_.is_ringt = false; // @company CipherFlow
+                    plain.metadata_.level = context_->Q_size - 1; // @company CipherFlow
+                    plain.metadata_.scale = plain.scale_; // @company CipherFlow
+                    plain.metadata_.log_slot_count = log_slot_count_; // @company CipherFlow
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -442,6 +469,10 @@ namespace heongpu
                     plain.depth_ = 0;
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = true;
+                    plain.metadata_.is_ringt = false; 
+                    plain.metadata_.level = context_->Q_size - 1; 
+                    plain.metadata_.scale = plain.scale_; 
+                    plain.metadata_.log_slot_count = log_slot_count; 
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -473,10 +504,13 @@ namespace heongpu
 
                     plain.plain_size_ = slot_count_ * 2;
                     plain.scheme_ = context_->scheme_;
-                    plain.depth_ = 0;
+                    plain.depth_ = context_->Q_size - 1;
                     plain.scale_ = scale;
                     plain.in_ntt_domain_ = false;
-                    plain.is_ringt_ = true;
+                    plain.metadata_.is_ringt = true; 
+                    plain.metadata_.level = 0; 
+                    plain.metadata_.scale = plain.scale_; 
+                    plain.metadata_.log_slot_count = log_slot_count_; 
                     plain.plaintext_generated_ = true;
                 },
                 options);
@@ -490,7 +524,7 @@ namespace heongpu
                     const int level,
                     const ExecutionOptions& options = ExecutionOptions())
         {
-            if (!plain_ringt.is_ringt_)
+            if (!plain_ringt.metadata_.is_ringt)
             {
                 throw std::invalid_argument("Input plaintext is not in ringt form");
             }
@@ -522,7 +556,10 @@ namespace heongpu
                             plain_pt_.depth_ = context_->Q_size - current_decomp_count;
                             plain_pt_.scale_ = plain_ringt_.scale_;
                             plain_pt_.in_ntt_domain_ = true;
-                            plain_pt_.is_ringt_ = false;
+                            plain_pt_.metadata_ = plain_ringt_.metadata_; 
+                            plain_pt_.metadata_.is_ringt = false; 
+                            plain_pt_.metadata_.level = level; 
+                            plain_pt_.metadata_.scale = plain_pt_.scale_; 
                             plain_pt_.plaintext_generated_ = true;
                 },
                 options);

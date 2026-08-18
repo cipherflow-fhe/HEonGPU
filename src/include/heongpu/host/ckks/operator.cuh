@@ -199,7 +199,7 @@ namespace heongpu
                   Ciphertext<Scheme::CKKS>& output,
                   const ExecutionOptions& options = ExecutionOptions())
         {
-            if (!input2.is_ringt_ && (input1.depth_ != input2.depth_)) // @company CipherFlow
+            if (!input2.metadata_.is_ringt && (input1.depth_ != input2.depth_)) // @company CipherFlow
             {
                 throw std::logic_error("Ciphertexts leveled are not equal");
             }
@@ -241,6 +241,11 @@ namespace heongpu
                                     output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
                                     output_.scale_ = input1_.scale_;
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                    output_.metadata_.log_slot_count =
+                                        (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                            ? input1_.metadata_.log_slot_count
+                                            : input2_.metadata_.log_slot_count; // @company CipherFlow
                                     output_.rescale_required_ =
                                         input1_.rescale_required_;
                                     output_.relinearization_required_ =
@@ -293,6 +298,10 @@ namespace heongpu
                         [&](Plaintext<Scheme::CKKS>& input2_) {
                             add_plain_ckks_inplace(input1_, input2_,
                                                    options.stream_);
+                            input1_.metadata_.log_slot_count =
+                                (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                    ? input1_.metadata_.log_slot_count
+                                    : input2_.metadata_.log_slot_count; // @company CipherFlow
                         },
                         options, false);
                 },
@@ -339,8 +348,9 @@ namespace heongpu
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
-                                    output_.encoding_ = input1_.encoding_;
+                            output_.encoding_ = input1_.encoding_;
                             output_.scale_ = input1_.scale_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -350,6 +360,15 @@ namespace heongpu
                         options);
                 },
                 options, (&input1 == &output));
+        }
+
+        // @company CipherFlow
+        __host__ void
+        add_plain(Ciphertext<Scheme::CKKS>& input1, Complex64 input2,
+                  Ciphertext<Scheme::CKKS>& output,
+                  const ExecutionOptions& options = ExecutionOptions())
+        {
+            add_plain_v2(input1, input2, output, options);
         }
 
         /**
@@ -395,7 +414,7 @@ namespace heongpu
                   Ciphertext<Scheme::CKKS>& output,
                   const ExecutionOptions& options = ExecutionOptions())
         {
-            if (!input2.is_ringt_ && (input1.depth_ != input2.depth_)) // @company CipherFlow
+            if (!input2.metadata_.is_ringt && (input1.depth_ != input2.depth_)) // @company CipherFlow
             {
                 throw std::logic_error("Ciphertexts leveled are not equal");
             }
@@ -437,6 +456,11 @@ namespace heongpu
                                     output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
                                     output_.scale_ = input1_.scale_;
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                    output_.metadata_.log_slot_count =
+                                        (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                            ? input1_.metadata_.log_slot_count
+                                            : input2_.metadata_.log_slot_count; // @company CipherFlow
                                     output_.rescale_required_ =
                                         input1_.rescale_required_;
                                     output_.relinearization_required_ =
@@ -489,6 +513,10 @@ namespace heongpu
                         [&](Plaintext<Scheme::CKKS>& input2_) {
                             sub_plain_ckks_inplace(input1_, input2_,
                                                    options.stream_);
+                            input1_.metadata_.log_slot_count =
+                                (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                    ? input1_.metadata_.log_slot_count
+                                    : input2_.metadata_.log_slot_count; // @company CipherFlow
                         },
                         options, false);
                 },
@@ -534,8 +562,9 @@ namespace heongpu
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
-                                    output_.encoding_ = input1_.encoding_;
+                            output_.encoding_ = input1_.encoding_;
                             output_.scale_ = input1_.scale_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -545,6 +574,16 @@ namespace heongpu
                         options);
                 },
                 options, (&input1 == &output));
+        }
+
+        // @company CipherFlow
+        __host__ void
+        sub_plain(Ciphertext<Scheme::CKKS>& input1, Complex64 input2,
+                  Ciphertext<Scheme::CKKS>& output,
+                  const ExecutionOptions& options = ExecutionOptions())
+        {
+            add_plain_v2(input1, Complex64(-input2.real(), -input2.imag()),
+                         output, options);
         }
 
         /**
@@ -606,8 +645,9 @@ namespace heongpu
                                 input1_.relinearization_required_ ? 3 : 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
-                                    output_.encoding_ = input1_.encoding_;
+                            output_.encoding_ = input1_.encoding_;
                             output_.scale_ = input1_.scale_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.rescale_required_ = 
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -683,6 +723,12 @@ namespace heongpu
                                         input1_.in_ntt_domain_;
                                     output_.rescale_required_ = false; // @company CipherFlow
                                     output_.encoding_ = input1_.encoding_;
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                    output_.metadata_.log_slot_count =
+                                        (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                            ? input1_.metadata_.log_slot_count
+                                            : input2_.metadata_.log_slot_count; // @company CipherFlow
+                                    output_.metadata_.scale = output_.scale_; // @company CipherFlow
                                     output_.relinearization_required_ = true;
                                     output_.ciphertext_generated_ = true;
                                 },
@@ -757,9 +803,9 @@ namespace heongpu
                                 output,
                                 [&](Ciphertext<Scheme::CKKS>& output_)
                                 {
-                                    if ((!input2_.is_ringt_) && (input2_.size() <
-                                        (context_->n * current_decomp_count)) || (input2_.is_ringt_) && (input2_.size() <
-                                        (slot_count_ * 2))) // @company CipherFlow
+                                    if ((!input2_.metadata_.is_ringt) && (input2_.size() <
+                                        (context_->n * current_decomp_count)) || (input2_.metadata_.is_ringt) && (input2_.size() <
+                                        (1 << input2_.metadata_.log_slot_count))) // @company CipherFlow
                                     {
                                         throw std::invalid_argument(
                                             "Invalid Plaintext size!");
@@ -778,6 +824,12 @@ namespace heongpu
                                     output_.depth_ = input1_.depth_;
                                     output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
+                                    output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                    output_.metadata_.log_slot_count =
+                                        (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                            ? input1_.metadata_.log_slot_count
+                                            : input2_.metadata_.log_slot_count; // @company CipherFlow
+                                    output_.metadata_.scale = output_.scale_; // @company CipherFlow
                                     output_.relinearization_required_ =
                                         input1_.relinearization_required_;
                                     output_.ciphertext_generated_ = true;
@@ -851,7 +903,9 @@ namespace heongpu
                             output_.cipher_size_ = 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
-                                    output_.encoding_ = input1_.encoding_;
+                            output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                            output_.metadata_.scale = output_.scale_; // @company CipherFlow
                             output_.relinearization_required_ =
                                 input1_.relinearization_required_;
                             output_.ciphertext_generated_ = true;
@@ -859,6 +913,15 @@ namespace heongpu
                         options);
                 },
                 options, (&input1 == &output));
+        }
+
+        // @company CipherFlow
+        __host__ void
+        multiply_plain(Ciphertext<Scheme::CKKS>& input1, Complex64 input2,
+                       Ciphertext<Scheme::CKKS>& output,
+                       const ExecutionOptions& options = ExecutionOptions())
+        {
+            multiply_plain_v2(input1, input2, output, options);
         }
 
         /**
@@ -908,7 +971,9 @@ namespace heongpu
                                 input1_.relinearization_required_ ? 3 : 2;
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
-                                    output_.encoding_ = input1_.encoding_;
+                            output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                            output_.metadata_.scale = output_.scale_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -952,6 +1017,8 @@ namespace heongpu
                             output_.depth_ = input_.depth_;
                             output_.in_ntt_domain_ = input_.in_ntt_domain_;
                             output_.encoding_ = input_.encoding_;
+                            output_.metadata_ = input_.metadata_; // @company CipherFlow
+                            output_.metadata_.scale = output_.scale_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input_.rescale_required_;
                             output_.relinearization_required_ =
@@ -993,6 +1060,7 @@ namespace heongpu
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.scale_ = input1_.scale_;
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
@@ -1035,6 +1103,7 @@ namespace heongpu
                             output_.depth_ = input1_.depth_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.scale_ = input1_.scale_;
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
@@ -1178,6 +1247,7 @@ namespace heongpu
                                     break;
                             }
 
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.relinearization_required_ = false;
                             output_.cipher_size_ = 2;
                             output_.rescale_required_ = output_.coeff_modulus_count_ - (output_.depth_ + 1) > 0 ? true: false; // @company CipherFlow
@@ -1252,6 +1322,7 @@ namespace heongpu
                                         "Invalid Key Switching Type");
                                     break;
                             }
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                         },
                         options);
                 },
@@ -1343,6 +1414,7 @@ namespace heongpu
                             output_.scale_ = input1_.scale_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -1433,6 +1505,7 @@ namespace heongpu
                             output_.scale_ = input1_.scale_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -1512,6 +1585,7 @@ namespace heongpu
                             output_.scale_ = input1_.scale_;
                             output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                     output_.encoding_ = input1_.encoding_;
+                            output_.metadata_ = input1_.metadata_; // @company CipherFlow
                             output_.rescale_required_ =
                                 input1_.rescale_required_;
                             output_.relinearization_required_ =
@@ -1548,7 +1622,11 @@ namespace heongpu
             input_storage_manager(
                 input1, 
                 [&](Ciphertext<Scheme::CKKS>& input1_)
-                { rescale_inplace_ckks_leveled(input1_, options.stream_); },
+                {
+                    rescale_inplace_ckks_leveled(input1_, options.stream_);
+                    input1_.metadata_.level -= 1; // @company CipherFlow
+                    input1_.metadata_.scale = input1_.scale_; // @company CipherFlow
+                },
                 options, true);
             
             if (current_decomp_count -1 <= 1) {
@@ -1597,6 +1675,9 @@ namespace heongpu
                             output.cipher_size_ = 2;
                             output.depth_ = input1.depth_ + 1;
                             output.in_ntt_domain_ = input1.in_ntt_domain_;
+                            output.metadata_ = input1.metadata_; // @company CipherFlow
+                            output.metadata_.level = input1.metadata_.level - 1; // @company CipherFlow
+                            output.metadata_.scale = output.scale_; // @company CipherFlow
                             output.rescale_required_ = input1.rescale_required_;
                             if (current_decomp_count -1 <= 1) {
                                 output.rescale_required_ = false;
@@ -1624,6 +1705,20 @@ namespace heongpu
                  Ciphertext<Scheme::CKKS>& output,
                  const ExecutionOptions& options = ExecutionOptions())
         {
+            mod_drop(input1, output, 1, options);
+        }
+
+        // @company CipherFlow
+        __host__ void
+        mod_drop(Ciphertext<Scheme::CKKS>& input1,
+                 Ciphertext<Scheme::CKKS>& output, int drop_level,
+                 const ExecutionOptions& options = ExecutionOptions())
+        {
+            if (drop_level <= 0)
+            {
+                throw std::invalid_argument("drop_level must be positive");
+            }
+
             if (!input1.rescale_required_ || input1.relinearization_required_) // @company CipherFlow
             {
                 throw std::invalid_argument(
@@ -1631,6 +1726,10 @@ namespace heongpu
             }
 
             int current_decomp_count = context_->Q_size - input1.depth_;
+            if (drop_level >= current_decomp_count)
+            {
+                throw std::logic_error("Ciphertext modulus can not be dropped!");
+            }
 
             if (input1.memory_size() < (2 * context_->n * current_decomp_count))
             {
@@ -1645,17 +1744,19 @@ namespace heongpu
                         output,
                         [&](Ciphertext<Scheme::CKKS>& output_)
                         {
-                            mod_drop_ckks_leveled(input1_, output_,
+                            mod_drop_ckks_leveled(input1_, output_, drop_level,
                                                   options.stream_);
 
                             output.scheme_ = context_->scheme_;
                             output.ring_size_ = context_->n;
                             output.coeff_modulus_count_ = context_->Q_size;
                             output.cipher_size_ = 2;
-                            output.depth_ = input1.depth_ + 1;
+                            output.depth_ = input1.depth_ + drop_level;
                             output.scale_ = input1.scale_;
                             output.in_ntt_domain_ = input1.in_ntt_domain_;
                             output.encoding_ = input1.encoding_;
+                            output.metadata_ = input1.metadata_; // @company CipherFlow
+                            output.metadata_.level = input1.metadata_.level - drop_level; // @company CipherFlow
                             output.rescale_required_ = input1.rescale_required_;
                             output.relinearization_required_ =
                                 input1.relinearization_required_;
@@ -1704,6 +1805,9 @@ namespace heongpu
                             output.scale_ = input1.scale_;
                             output.in_ntt_domain_ = input1.in_ntt_domain_;
                             output.encoding_ = input1.encoding_;
+                            output.metadata_ = input1.metadata_; // @company CipherFlow
+                            output.metadata_.level = input1.metadata_.level - 1; // @company CipherFlow
+                            output.ntt_table_slot_ = input1.ntt_table_slot_; // @company CipherFlow
                             output.plaintext_generated_ = true;
                         },
                         options);
@@ -1745,18 +1849,15 @@ namespace heongpu
         mod_drop_inplace(Ciphertext<Scheme::CKKS>& input1,
                          const ExecutionOptions& options = ExecutionOptions())
         {
-            int current_decomp_count = context_->Q_size - input1.depth_;
+            mod_drop_inplace(input1, 1, options);
+        }
 
-            if (input1.memory_size() < (2 * context_->n * current_decomp_count))
-            {
-                throw std::invalid_argument("Invalid Ciphertexts size!");
-            }
-
-            input_storage_manager(
-                input1, 
-                [&](Ciphertext<Scheme::CKKS>& input1_)
-                { mod_drop_ckks_leveled_inplace(input1_, options.stream_); },
-                options, true);
+        // @company CipherFlow
+        __host__ void
+        mod_drop_inplace(Ciphertext<Scheme::CKKS>& input1, int drop_level,
+                         const ExecutionOptions& options = ExecutionOptions())
+        {
+            mod_drop(input1, input1, drop_level, options);
         }
 
         HEOperator() = default;
@@ -1926,6 +2027,7 @@ namespace heongpu
 
         __host__ void mod_drop_ckks_leveled(Ciphertext<Scheme::CKKS>& input1,
                                             Ciphertext<Scheme::CKKS>& output,
+                                            int drop_level, // @company CipherFlow
                                             const cudaStream_t stream);
 
         __host__ void mod_drop_ckks_plaintext(Plaintext<Scheme::CKKS>& input1,

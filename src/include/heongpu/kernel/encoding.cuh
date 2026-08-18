@@ -78,6 +78,13 @@ namespace heongpu
                         Modulus64* modulus,
                         int n_power);
 
+    // @company CipherFlow
+    __global__ void
+    ringt_to_bgv_plain_kernel(Data64* plaintext_ringt, Data64* plaintext,
+                               Modulus64* modulus,
+                               Data64* t_inv_mod_Qi,
+                               int n_power);
+
     __global__ void decode_kernel_coeff_ckks_compose(
         double* message, Data64* plaintext, Modulus64* modulus, Data64* Mi_inv,
         Data64* Mi, Data64* upper_half_threshold, Data64* decryption_modulus,

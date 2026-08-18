@@ -525,8 +525,8 @@ namespace heongpu
     {
         int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
         int idy = blockIdx.y; // rns count
-        int ring_size = 1 << n_power; 
-        if (idx >= ring_size) 
+        int ring_size = 1 << n_power;
+        if (idx >= ring_size)
         {
             return;
         }
@@ -556,7 +556,28 @@ namespace heongpu
             Data64 tmp = OPERATOR_GPU_64::reduce_forced(coeff, modulus[idy]);
             output[location_output] = tmp * pos + (qi - tmp) * neg;
         }
-        
+
+    }
+
+    // @company CipherFlow
+    __global__ void ringt_to_bgv_plain_kernel(Data64* input, Data64* output,
+                                              Modulus64* modulus,
+                                              Data64* t_inv_mod_Qi,
+                                              int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int idy = blockIdx.y; // rns count
+        int ring_size = 1 << n_power;
+        if (idx >= ring_size)
+        {
+            return;
+        }
+
+        int location_input = idx;
+        int location_output = idx + (idy << n_power);
+        Data64 coeff = input[location_input];
+        output[location_output] = OPERATOR_GPU_64::mult(
+            coeff, t_inv_mod_Qi[idy], modulus[idy]);
     }
 
 } // namespace heongpu

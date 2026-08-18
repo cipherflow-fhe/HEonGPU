@@ -20,8 +20,11 @@ namespace heongpu
         storage_type_ = options.storage_;
 
         coeff_modulus_count_ = context->Q_size; // @company CipherFlow
-        is_ringt_ = true; // @company CipherFlow
+        metadata_.is_ringt = false; // @company CipherFlow
         depth_ = context->Q_size-1; // @company CipherFlow
+        metadata_.level = coeff_modulus_count_ - (depth_ + 1); // @company CipherFlow
+        metadata_.scale = 1.0; // @company CipherFlow
+        metadata_.log_slot_count = -1; // @company CipherFlow
 
         if (storage_type_ == storage_type::DEVICE)
         {
@@ -49,8 +52,11 @@ namespace heongpu
         storage_type_ = options.storage_;
 
         coeff_modulus_count_ = context->Q_size;
-        is_ringt_ = false;
+        metadata_.is_ringt = false;
         depth_ = coeff_modulus_count_ - (level + 1);
+        metadata_.level = level;
+        metadata_.scale = 1.0;
+        metadata_.log_slot_count = -1;
 
         plain_size_ = context->n * (coeff_modulus_count_ - depth_);
 
@@ -142,7 +148,7 @@ namespace heongpu
 
             os.write((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_));
 
-            os.write((char*) &is_ringt_, sizeof(is_ringt_));
+            os.write((char*) &metadata_, sizeof(metadata_)); // @company CipherFlow
 
             os.write((char*) &depth_, sizeof(depth_));
 
@@ -195,7 +201,7 @@ namespace heongpu
 
             is.read((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_));
 
-            is.read((char*) &is_ringt_, sizeof(is_ringt_));
+            is.read((char*) &metadata_, sizeof(metadata_)); // @company CipherFlow
 
             is.read((char*) &depth_, sizeof(depth_));
 

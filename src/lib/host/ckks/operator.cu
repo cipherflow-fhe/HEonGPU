@@ -140,6 +140,11 @@ namespace heongpu
                                 output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                 output_.encoding_ = input1_.encoding_;
                                 output_.scale_ = input1_.scale_;
+                                output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                output_.metadata_.log_slot_count =
+                                    (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                        ? input1_.metadata_.log_slot_count
+                                        : input2_.metadata_.log_slot_count; // @company CipherFlow
                                 output_.rescale_required_ =
                                     (input1_.rescale_required_ ||
                                      input2_.rescale_required_);
@@ -231,6 +236,11 @@ namespace heongpu
                                 output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                 output_.encoding_ = input1_.encoding_;
                                 output_.scale_ = input1_.scale_;
+                                output_.metadata_ = input1_.metadata_; // @company CipherFlow
+                                output_.metadata_.log_slot_count =
+                                    (input1_.metadata_.log_slot_count > input2_.metadata_.log_slot_count)
+                                        ? input1_.metadata_.log_slot_count
+                                        : input2_.metadata_.log_slot_count; // @company CipherFlow
                                 output_.rescale_required_ =
                                     (input1_.rescale_required_ ||
                                      input2_.rescale_required_);
@@ -287,8 +297,9 @@ namespace heongpu
                         output_.cipher_size_ = cipher_size;
                         output_.depth_ = input1_.depth_;
                         output_.in_ntt_domain_ = input1_.in_ntt_domain_;
-                                output_.encoding_ = input1_.encoding_;
+                        output_.encoding_ = input1_.encoding_;
                         output_.scale_ = input1_.scale_;
+                        output_.metadata_ = input1_.metadata_; // @company CipherFlow
                         output_.rescale_required_ = input1_.rescale_required_;
                         output_.relinearization_required_ =
                             input1_.relinearization_required_;
@@ -305,7 +316,7 @@ namespace heongpu
         Ciphertext<Scheme::CKKS>& input1, Plaintext<Scheme::CKKS>& input2,
         Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
     {
-        if (!input2.is_ringt_ && input1.depth_ != input2.depth_) // @company CipherFlow
+        if (!input2.metadata_.is_ringt && input1.depth_ != input2.depth_) // @company CipherFlow
         {
             throw std::logic_error("Ciphertexts leveled are not equal");
         }
@@ -326,7 +337,8 @@ namespace heongpu
             throw std::invalid_argument("Invalid Ciphertexts size!");
         }
 
-        if ((!input2.is_ringt_ && input2.size() < (context_->n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < (slot_count_ * 2))) // @company CipherFlow
+        if ((!input2.metadata_.is_ringt && input2.size() < (context_->n * current_decomp_count)) ||
+            (input2.metadata_.is_ringt && input2.size() < (1 << input2.metadata_.log_slot_count))) // @company CipherFlow
         {
             throw std::invalid_argument("Invalid Plaintext size!");
         }
@@ -338,9 +350,10 @@ namespace heongpu
         // covers the addition kernel execution (fix dangling pointer bug)
         DeviceVector<Data64> converted_plaintext;
 
-        if (input2.is_ringt_) {
-            int log_slot_n = log_slot_count_ + 1;
-            int slot_n = 1 << log_slot_n;
+        if (input2.metadata_.is_ringt) {
+            int log_slot_n = input2.metadata_.log_slot_count + 1; // @company CipherFlow
+            int slot_n = 1 << log_slot_n; // @company CipherFlow
+            int input2_gap = (context_->n >> 1) / (1 << input2.metadata_.log_slot_count); // @company CipherFlow
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
@@ -358,17 +371,17 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
+            gpuntt::GPU_NTT_Inplace(ringt_data.data(), input2.ntt_table_slot_->data(), // @company CipherFlow
                                     context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
 
             // Step 3: Expand to full ring if sparse packing
-            if (gap_ > 1)
+            if (input2_gap > 1) // @company CipherFlow
             {
                 converted_plaintext.resize(context_->n * current_decomp_count, stream);
                 sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
                                             256, 0, stream>>>(
                     converted_plaintext.data(), ringt_data.data(),
-                    log_slot_count_, context_->n_power, current_decomp_count);
+                    input2.metadata_.log_slot_count, context_->n_power, current_decomp_count); // @company CipherFlow
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
             }
             else
@@ -486,7 +499,7 @@ namespace heongpu
         Ciphertext<Scheme::CKKS>& input1, Plaintext<Scheme::CKKS>& input2,
         Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
     {
-        if (!input2.is_ringt_ && input1.depth_ != input2.depth_) // @company CipherFlow
+        if (!input2.metadata_.is_ringt && input1.depth_ != input2.depth_) // @company CipherFlow
         {
             throw std::logic_error("Ciphertexts leveled are not equal");
         }
@@ -507,7 +520,8 @@ namespace heongpu
             throw std::invalid_argument("Invalid Ciphertexts size!");
         }
 
-        if ((!input2.is_ringt_ && input2.size() < (context_->n * current_decomp_count)) || (input2.is_ringt_ && input2.size() < (slot_count_ * 2))) // @company CipherFlow
+        if ((!input2.metadata_.is_ringt && input2.size() < (context_->n * current_decomp_count)) ||
+            (input2.metadata_.is_ringt && input2.size() < (1 << input2.metadata_.log_slot_count))) // @company CipherFlow
         {
             throw std::invalid_argument("Invalid Plaintext size!");
         }
@@ -519,9 +533,10 @@ namespace heongpu
         // covers the subtraction kernel execution (fix dangling pointer bug)
         DeviceVector<Data64> converted_plaintext;
 
-        if (input2.is_ringt_) {
-            int log_slot_n = log_slot_count_ + 1;
-            int slot_n = 1 << log_slot_n;
+        if (input2.metadata_.is_ringt) {
+            int log_slot_n = input2.metadata_.log_slot_count + 1; // @company CipherFlow
+            int slot_n = 1 << log_slot_n; // @company CipherFlow
+            int input2_gap = (context_->n >> 1) / (1 << input2.metadata_.log_slot_count); // @company CipherFlow
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
@@ -539,17 +554,17 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
+            gpuntt::GPU_NTT_Inplace(ringt_data.data(), input2.ntt_table_slot_->data(), // @company CipherFlow
                                     context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
 
             // Step 3: Expand to full ring if sparse packing
-            if (gap_ > 1)
+            if (input2_gap > 1) // @company CipherFlow
             {
                 converted_plaintext.resize(context_->n * current_decomp_count, stream);
                 sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
                                             256, 0, stream>>>(
                     converted_plaintext.data(), ringt_data.data(),
-                    log_slot_count_, context_->n_power, current_decomp_count);
+                    input2.metadata_.log_slot_count, context_->n_power, current_decomp_count); // @company CipherFlow
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
             }
             else
@@ -940,7 +955,7 @@ namespace heongpu
         Ciphertext<Scheme::CKKS>& input1, Plaintext<Scheme::CKKS>& input2,
         Ciphertext<Scheme::CKKS>& output, const cudaStream_t stream)
     {
-        if (!input2.is_ringt_ && input1.depth_ != input2.depth_) // @company CipherFlow
+        if (!input2.metadata_.is_ringt && input1.depth_ != input2.depth_) // @company CipherFlow
         {
             throw std::logic_error("Ciphertexts leveled are not equal");
         }
@@ -961,9 +976,10 @@ namespace heongpu
         DeviceVector<Data64> converted_plaintext;
 
         // If input2 is in ringt format, convert it to pt format
-        if (input2.is_ringt_) {
-            int log_slot_n = log_slot_count_ + 1;
-            int slot_n = 1 << log_slot_n;
+        if (input2.metadata_.is_ringt) {
+            int log_slot_n = input2.metadata_.log_slot_count + 1; // @company CipherFlow
+            int slot_n = 1 << log_slot_n; // @company CipherFlow
+            int input2_gap = (context_->n >> 1) / (1 << input2.metadata_.log_slot_count); // @company CipherFlow
 
             // Step 1: ringt_to_pt in slot ring (size = slot_n, not N)
             DeviceVector<Data64> ringt_data(slot_n * current_decomp_count, stream);
@@ -981,17 +997,17 @@ namespace heongpu
                 .zero_padding = false,
                 .stream = stream};
 
-            gpuntt::GPU_NTT_Inplace(ringt_data.data(), context_->ntt_table_slot_->data(),
+            gpuntt::GPU_NTT_Inplace(ringt_data.data(), input2.ntt_table_slot_->data(), // @company CipherFlow
                                     context_->modulus_->data(), cfg_ntt, current_decomp_count, current_decomp_count);
 
             // Step 3: Expand to full ring if sparse packing
-            if (gap_ > 1)
+            if (input2_gap > 1) // @company CipherFlow
             {
                 converted_plaintext.resize(context_->n * current_decomp_count, stream);
                 sparse_ntt_expand_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
                                             256, 0, stream>>>(
                     converted_plaintext.data(), ringt_data.data(),
-                    log_slot_count_, context_->n_power, current_decomp_count);
+                    input2.metadata_.log_slot_count, context_->n_power, current_decomp_count); // @company CipherFlow
                 HEONGPU_CUDA_CHECK(cudaGetLastError());
             }
             else
@@ -1640,23 +1656,17 @@ namespace heongpu
 
     __host__ void HEOperator<Scheme::CKKS>::mod_drop_ckks_leveled(
         Ciphertext<Scheme::CKKS>& input1, Ciphertext<Scheme::CKKS>& output,
-        const cudaStream_t stream)
+        int drop_level, const cudaStream_t stream) // @company CipherFlow
     {
-        if (input1.depth_ >= (context_->Q_size - 1))
-        {
-            throw std::logic_error("Ciphertext modulus can not be dropped!");
-        }
-
         int current_decomp_count = context_->Q_size - input1.depth_;
+        int output_decomp_count = current_decomp_count - drop_level; // @company CipherFlow
         DeviceVector<Data64> output_memory(
-            (current_decomp_count * context_->n * current_decomp_count),
-            stream);
+            (2 * context_->n * output_decomp_count), stream);
 
-        global_memory_replace_offset_kernel<<<dim3((context_->n >> 8),
-                                                   current_decomp_count - 1, 2),
-                                              256, 0, stream>>>(
-            input1.data(), output_memory.data(), current_decomp_count,
-            context_->n_power);
+        global_memory_drop_level_offset_kernel<<< // @company CipherFlow
+            dim3((context_->n >> 8), output_decomp_count, 2), 256, 0,
+            stream>>>(input1.data(), output_memory.data(), current_decomp_count,
+                       drop_level, context_->n_power); // @company CipherFlow
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         output.memory_set(std::move(output_memory));
@@ -1915,6 +1925,7 @@ namespace heongpu
         output.scale_ = input1.scale_;
         output.in_ntt_domain_ = input1.in_ntt_domain_;
         output.encoding_ = input1.encoding_;
+        output.metadata_ = input1.metadata_; // @company CipherFlow
         output.rescale_required_ = input1.rescale_required_;
         output.relinearization_required_ = input1.relinearization_required_;
         output.ciphertext_generated_ = true;
@@ -2079,6 +2090,7 @@ namespace heongpu
         output.scale_ = input1.scale_;
         output.in_ntt_domain_ = input1.in_ntt_domain_;
         output.encoding_ = input1.encoding_;
+        output.metadata_ = input1.metadata_; // @company CipherFlow
         output.rescale_required_ = input1.rescale_required_;
         output.relinearization_required_ = input1.relinearization_required_;
         output.ciphertext_generated_ = true;

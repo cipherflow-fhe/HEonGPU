@@ -46,12 +46,25 @@ namespace heongpu
                                 Data64 Q_mod_t, Data64 upper_threshold,
                                 Data64* coeffdiv_plain, int n_power);
 
-    // @company CipherFlow 
+    // @company CipherFlow
     __global__ void
     substraction_plain_bfv_poly(Data64* cipher, Data64* plain, Data64* output,
                                 Modulus64* modulus, Modulus64 plain_mod,
-                                Data64* Q_mod_t, Data64 upper_threshold, 
+                                Data64* Q_mod_t, Data64 upper_threshold,
                                 Data64* coeffdiv_plain, int n_power);  // @company CipherFlow
+
+    // @company CipherFlow
+    __global__ void addition_plain_bfv_poly(Data64* cipher, Data64 scalar_mod_t,
+                                             Data64* output, Modulus64* modulus,
+                                             Modulus64 plain_mod,
+                                             Data64* t_inv_mod_Qi,
+                                             int n_power);
+
+    // @company CipherFlow
+    __global__ void substraction_plain_bfv_poly(
+        Data64* cipher, Data64 scalar_mod_t, Data64* output,
+        Modulus64* modulus, Modulus64 plain_mod, Data64* t_inv_mod_Qi,
+        int n_power);
 
     // Homomorphic Plaintext Addition Kernel(BFV)
     __global__ void addition_plain_bfv_poly_inplace(

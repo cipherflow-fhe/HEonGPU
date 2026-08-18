@@ -291,6 +291,8 @@ namespace heongpu
         std::shared_ptr<DeviceVector<Data64>> coeeff_div_plainmod_;
         // Data64 Q_mod_t_; // @company CipherFlow
         std::shared_ptr<DeviceVector<Data64>> Q_mod_t_; // @company CipherFlow
+        std::vector<Data64> Q_mod_t_host_; // @company CipherFlow
+        std::shared_ptr<DeviceVector<Data64>> t_inv_mod_Qi_; // @company CipherFlow
 
         Data64 upper_threshold_;
         std::shared_ptr<DeviceVector<Data64>> upper_halfincrement_;

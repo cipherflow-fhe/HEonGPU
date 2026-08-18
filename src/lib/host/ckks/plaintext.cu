@@ -15,6 +15,7 @@ namespace heongpu
             throw std::invalid_argument("HEContext is not generated!");
         }
 
+        context_ = context; // @company CipherFlow
         scheme_ = context->scheme_;
         plain_size_ = context->n * context->Q_size; // @company CipherFlow
         depth_ = context->Q_size-1; // @company CipherFlow
@@ -23,7 +24,10 @@ namespace heongpu
         storage_type_ = options.storage_;
 
         coeff_modulus_count_ = context->Q_size; // @company CipherFlow
-        is_ringt_ = false; // @company CipherFlow
+        metadata_.is_ringt = false; // @company CipherFlow
+        metadata_.level = coeff_modulus_count_ - (depth_ + 1); // @company CipherFlow
+        metadata_.scale = scale_; // @company CipherFlow
+        metadata_.log_slot_count = -1; // @company CipherFlow
 
         /**
          * @company CipherFlow
@@ -51,6 +55,7 @@ namespace heongpu
             throw std::invalid_argument("HEContext is not generated!");
         }
 
+        context_ = context; 
         scheme_ = context->scheme_;
         depth_ = context->Q_size - (level+1);
         plain_size_ = context->n * (level+1);
@@ -58,7 +63,10 @@ namespace heongpu
         storage_type_ = options.storage_;
 
         coeff_modulus_count_ = context->Q_size;
-        is_ringt_ = false; 
+        metadata_.is_ringt = false; 
+        metadata_.level = level; 
+        metadata_.scale = scale_; 
+        metadata_.log_slot_count = -1; 
 
         if (storage_type_ == storage_type::DEVICE)
         {
@@ -152,7 +160,7 @@ namespace heongpu
 
             os.write((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_)); // @company CipherFlow
 
-            os.write((char*) &is_ringt_, sizeof(is_ringt_)); // @company CipherFlow
+            os.write((char*) &metadata_, sizeof(metadata_)); // @company CipherFlow
             os.write((char*) &encoding_, sizeof(encoding_));
 
             os.write((char*) &plaintext_generated_,
@@ -208,7 +216,7 @@ namespace heongpu
 
             is.read((char*) &coeff_modulus_count_, sizeof(coeff_modulus_count_)); // @company CipherFlow
 
-            is.read((char*) &is_ringt_, sizeof(is_ringt_)); // @company CipherFlow
+            is.read((char*) &metadata_, sizeof(metadata_)); // @company CipherFlow
             is.read((char*) &encoding_, sizeof(encoding_));
 
             is.read((char*) &plaintext_generated_,

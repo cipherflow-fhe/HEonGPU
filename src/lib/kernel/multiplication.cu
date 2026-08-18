@@ -7,6 +7,22 @@
 
 namespace heongpu
 {
+    // @company CipherFlow
+    __device__ Data64 bfv_scalar_mod_t_to_q_for_multiply(Data64 scalar_mod_t,
+                                                         Modulus64 plain_mod,
+                                                         Modulus64 modulus)
+    {
+        Data64 scalar = scalar_mod_t % plain_mod.value;
+        bool is_negative = scalar > (plain_mod.value >> 1);
+        Data64 magnitude = is_negative ? (plain_mod.value - scalar) : scalar;
+        Data64 value = OPERATOR_GPU_64::reduce_forced(magnitude, modulus);
+        if (is_negative && value != 0)
+        {
+            value = OPERATOR_GPU_64::sub(modulus.value, value, modulus);
+        }
+        return value;
+    }
+
     __global__ void
     fast_convertion(Data64* in1, Data64* in2, Data64* out1, Modulus64* ibase,
                     Modulus64* obase, Modulus64 m_tilde,
@@ -638,6 +654,24 @@ namespace heongpu
 
         ct = OPERATOR_GPU_64::mult(ct, pt, modulus[block_y]);
         out[location_ct] = ct;
+    }
+
+    // @company CipherFlow
+    __global__ void cipherplain_kernel(
+        Data64* in1, Data64 scalar_mod_t, Data64* out, Modulus64* modulus,
+        Modulus64 plain_mod, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // ring size
+        int block_y = blockIdx.y; // rns count
+        int block_z = blockIdx.z; // cipher count
+
+        int location_ct =
+            idx + (block_y << n_power) + ((gridDim.y * block_z) << n_power);
+
+        Data64 scalar_q = bfv_scalar_mod_t_to_q_for_multiply(
+            scalar_mod_t, plain_mod, modulus[block_y]);
+        out[location_ct] = OPERATOR_GPU_64::mult(
+            in1[location_ct], scalar_q, modulus[block_y]);
     }
 
     __global__ void cipherplain_multiply_accumulate_kernel(

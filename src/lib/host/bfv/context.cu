@@ -580,11 +580,13 @@ namespace heongpu
 
             // @company CipherFlow begin ---
             std::vector<Data64> Q_mod_t;
+            std::vector<Data64> t_inv_mod_Qi;
             for (int i = 0; i < Q_size; i++)
             {
                 int depth_Q_size = Q_size - i;
                 Data64 Q_mod_t_inner = generate_Q_mod_t(prime_vector_, plain_mod, depth_Q_size);
                 Q_mod_t.push_back(Q_mod_t_inner);
+                t_inv_mod_Qi.push_back(OPERATOR64::modinv(plain_mod.value, prime_vector_[i]));
             }
 
             std::vector <Data64> coeff_div_plain_modulus;
@@ -920,6 +922,8 @@ namespace heongpu
                 std::make_shared<DeviceVector<Data64>>(coeff_div_plain_modulus);
 
             Q_mod_t_ = std::make_shared<DeviceVector<Data64>>(Q_mod_t); // @company CipherFlow
+            Q_mod_t_host_ = Q_mod_t; // @company CipherFlow
+            t_inv_mod_Qi_ = std::make_shared<DeviceVector<Data64>>(t_inv_mod_Qi); // @company CipherFlow
 
             upper_threshold_ = plain_upper_half_threshold;
 

@@ -7,6 +7,7 @@
 #define HEONGPU_CKKS_CIPHERTEXT_H
 
 #include <heongpu/host/ckks/context.cuh>
+#include <heongpu/util/metadata.h>
 
 namespace heongpu
 {
@@ -168,7 +169,7 @@ namespace heongpu
          */
         inline int level() const noexcept
         {
-            return coeff_modulus_count_ - (depth_ + 1);
+            return metadata_.level;
         }
 
         /**
@@ -189,7 +190,25 @@ namespace heongpu
         /**
          * @company CipherFlow
          */
-        inline void set_scale(double scale) noexcept { scale_ = scale; }
+        inline void set_scale(double scale) noexcept
+        {
+            scale_ = scale;
+            metadata_.scale = scale; 
+        }
+
+        /**
+         * @company CipherFlow
+         */
+        inline int get_slot_count() const noexcept { return 1 << metadata_.log_slot_count; } 
+        /**
+         * @company CipherFlow
+         */
+        inline int get_log_slot_count() const noexcept { return metadata_.log_slot_count; } 
+
+        /**
+         * @company CipherFlow
+         */
+        inline void set_log_slot_count(int log_sc) noexcept { metadata_.log_slot_count = log_sc; } 
         /**
          * @brief Returns the semantic encoding mode carried by ciphertext.
          *
@@ -227,6 +246,7 @@ namespace heongpu
               scheme_(copy.scheme_), in_ntt_domain_(copy.in_ntt_domain_),
               storage_type_(copy.storage_type_), scale_(copy.scale_),
               encoding_(copy.encoding_),
+              metadata_(copy.metadata_), // @company CipherFlow
               rescale_required_(copy.rescale_required_),
               relinearization_required_(copy.relinearization_required_),
               ciphertext_generated_(copy.ciphertext_generated_)
@@ -261,6 +281,7 @@ namespace heongpu
               storage_type_(std::move(assign.storage_type_)),
               scale_(std::move(assign.scale_)),
               encoding_(std::move(assign.encoding_)),
+              metadata_(std::move(assign.metadata_)), // @company CipherFlow
               rescale_required_(std::move(assign.rescale_required_)),
               relinearization_required_(
                   std::move(assign.relinearization_required_)),
@@ -284,6 +305,7 @@ namespace heongpu
 
                 scale_ = copy.scale_;
                 encoding_ = copy.encoding_;
+                metadata_ = copy.metadata_; // @company CipherFlow
                 rescale_required_ = copy.rescale_required_;
                 relinearization_required_ = copy.relinearization_required_;
                 ciphertext_generated_ = copy.ciphertext_generated_;
@@ -324,6 +346,7 @@ namespace heongpu
 
                 scale_ = std::move(assign.scale_);
                 encoding_ = std::move(assign.encoding_);
+                metadata_ = std::move(assign.metadata_); // @company CipherFlow
                 rescale_required_ = std::move(assign.rescale_required_);
                 relinearization_required_ =
                     std::move(assign.relinearization_required_);
@@ -351,6 +374,7 @@ namespace heongpu
 
         double scale_;
         encoding encoding_ = encoding::SLOT;
+        Metadata metadata_; // @company CipherFlow
         bool rescale_required_;
         bool relinearization_required_;
 

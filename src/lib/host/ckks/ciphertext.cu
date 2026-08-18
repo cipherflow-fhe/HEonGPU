@@ -38,6 +38,10 @@ namespace heongpu
 
         relinearization_required_ = false;
         scale_ = 0;
+        metadata_.is_ringt = false; // @company CipherFlow
+        metadata_.level = coeff_modulus_count_ - (depth_ + 1); // @company CipherFlow
+        metadata_.scale = scale_; // @company CipherFlow
+        metadata_.log_slot_count = -1; // @company CipherFlow
 
         storage_type_ = options.storage_;
 
@@ -87,6 +91,10 @@ namespace heongpu
         relinearization_required_ = false;
         scale_ = 0;
         encoding_ = encoding::SLOT;
+        metadata_.is_ringt = false; 
+        metadata_.level = level; 
+        metadata_.scale = scale_; 
+        metadata_.log_slot_count = -1; 
 
         storage_type_ = options.storage_;
 

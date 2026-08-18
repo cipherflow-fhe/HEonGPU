@@ -7,6 +7,7 @@
 #define HEONGPU_BFV_CIPHERTEXT_H
 
 #include <heongpu/host/bfv/context.cuh>
+#include <heongpu/util/metadata.h>
 
 namespace heongpu
 {
@@ -155,6 +156,22 @@ namespace heongpu
         inline int size() const noexcept { return cipher_size_; }
 
         /**
+         * @company CipherFlow
+         */
+        inline double scale() const noexcept { return metadata_.scale; }
+
+        /**
+         * @company CipherFlow
+         */
+        inline void set_scale(double scale) noexcept { metadata_.scale = scale; }
+
+        // @company CipherFlow
+        inline void set_log_slot_count(int log_slot_count) noexcept
+        {
+            metadata_.log_slot_count = log_slot_count;
+        }
+
+        /**
          * @brief Returns the depth level of the ciphertext.
          *
          * @return int Depth level of the ciphertext.
@@ -172,7 +189,7 @@ namespace heongpu
          */
         inline int level() const noexcept
         {
-            return coeff_modulus_count_ - (depth_ + 1);
+            return metadata_.level;
         }
 
         /**
@@ -212,6 +229,7 @@ namespace heongpu
             : ring_size_(copy.ring_size_),
               coeff_modulus_count_(copy.coeff_modulus_count_),
               cipher_size_(copy.cipher_size_), depth_(copy.depth_),  // @company CipherFlow
+              metadata_(copy.metadata_), // @company CipherFlow
               scheme_(copy.scheme_), in_ntt_domain_(copy.in_ntt_domain_),
               storage_type_(copy.storage_type_),
               rescale_required_(copy.rescale_required_),  // @company CipherFlow
@@ -242,6 +260,7 @@ namespace heongpu
               coeff_modulus_count_(std::move(assign.coeff_modulus_count_)),
               cipher_size_(std::move(assign.cipher_size_)),
               depth_(std::move(assign.depth_)), // @company CipherFlow
+              metadata_(std::move(assign.metadata_)), // @company CipherFlow
               scheme_(std::move(assign.scheme_)),
               in_ntt_domain_(std::move(assign.in_ntt_domain_)),
               storage_type_(std::move(assign.storage_type_)),
@@ -262,6 +281,7 @@ namespace heongpu
                 coeff_modulus_count_ = copy.coeff_modulus_count_;
                 cipher_size_ = copy.cipher_size_;
                 depth_ = copy.depth_;  // @company CipherFlow
+                metadata_ = copy.metadata_; // @company CipherFlow
                 scheme_ = copy.scheme_;
                 in_ntt_domain_ = copy.in_ntt_domain_;
                 storage_type_ = copy.storage_type_;
@@ -300,6 +320,7 @@ namespace heongpu
                 coeff_modulus_count_ = std::move(assign.coeff_modulus_count_);
                 cipher_size_ = std::move(assign.cipher_size_);
                 depth_ = std::move(assign.depth_);  // @company CipherFlow
+                metadata_ = std::move(assign.metadata_); // @company CipherFlow
                 scheme_ = std::move(assign.scheme_);
                 in_ntt_domain_ = std::move(assign.in_ntt_domain_);
                 storage_type_ = std::move(assign.storage_type_);
@@ -326,6 +347,7 @@ namespace heongpu
         int coeff_modulus_count_;
         int cipher_size_;
         int depth_; // @company CipherFlow
+        Metadata metadata_; // @company CipherFlow
 
         bool in_ntt_domain_;
         storage_type storage_type_;

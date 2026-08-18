@@ -142,6 +142,12 @@ namespace heongpu
                                         int current_decomposition_count,
                                         int n_power);
 
+    // @company CipherFlow
+    __global__ void
+    global_memory_drop_level_offset_kernel(Data64* input, Data64* output,
+                                           int current_decomposition_count,
+                                           int drop_level, int n_power);
+
     __global__ void
     cipher_broadcast_switchkey_kernel(Data64* cipher, Data64* out0,
                                       Data64* out1, Modulus64* modulus,

@@ -5,6 +5,8 @@
 
 #include <heongpu/host/bfv/operator.cuh>
 
+#include <cmath>
+
 namespace heongpu
 {
     __host__
@@ -141,6 +143,7 @@ namespace heongpu
                                 output_.coeff_modulus_count_ = context_->Q_size;
                                 output_.cipher_size_ = cipher_size;
                                 output_.depth_ = input1_.depth_; // @company CipherFlow
+                                output_.metadata_ = input1_.metadata_; // @company CipherFlow
                                 output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                 output_.rescale_required_ =
                                     (input1_.rescale_required_ ||
@@ -225,6 +228,7 @@ namespace heongpu
                                 output_.coeff_modulus_count_ = context_->Q_size;
                                 output_.cipher_size_ = cipher_size;
                                 output_.depth_ = input1_.depth_; // @company CipherFlow
+                                output_.metadata_ = input1_.metadata_; // @company CipherFlow
                                 output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                                 output_.rescale_required_ =
                                     (input1_.rescale_required_ ||
@@ -281,6 +285,7 @@ namespace heongpu
                         output_.coeff_modulus_count_ = context_->Q_size;
                         output_.cipher_size_ = cipher_size;
                         output_.depth_ = input1_.depth_; // @company CipherFlow
+                        output_.metadata_ = input1_.metadata_; // @company CipherFlow
                         output_.in_ntt_domain_ = input1_.in_ntt_domain_;
                         output_.rescale_required_ = input1_.rescale_required_; // @company CipherFlow
                         output_.relinearization_required_ =
@@ -288,6 +293,66 @@ namespace heongpu
                         output_.ciphertext_generated_ = true;
 
                         output_.memory_set(std::move(output_memory));
+                    },
+                    options);
+            },
+            options, (&input1 == &output));
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::add_plain(
+        Ciphertext<Scheme::BFV>& input1, std::int64_t input2,
+        Ciphertext<Scheme::BFV>& output, const ExecutionOptions& options)
+    {
+        Data64 plain_mod = context_->plain_modulus_.value;
+        std::int64_t mod = static_cast<std::int64_t>(plain_mod);
+        std::int64_t scalar = input2 % mod;
+        if (scalar < 0)
+        {
+            scalar += mod;
+        }
+        add_plain(input1, static_cast<std::uint64_t>(scalar), output, options);
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::add_plain(
+        Ciphertext<Scheme::BFV>& input1, std::uint64_t input2,
+        Ciphertext<Scheme::BFV>& output, const ExecutionOptions& options)
+    {
+        if (input1.relinearization_required_)
+        {
+            throw std::invalid_argument(
+                "Ciphertext and Plaintext can not be added because "
+                "ciphertext has non-linear partl!");
+        }
+
+        input_storage_manager(
+            input1,
+            [&](Ciphertext<Scheme::BFV>& input1_)
+            {
+                output_storage_manager(
+                    output,
+                    [&](Ciphertext<Scheme::BFV>& output_)
+                    {
+                        if (input1_.in_ntt_domain_)
+                        {
+                            throw std::logic_error(
+                                "BFV ciphertext should be not in NTT domain");
+                        }
+
+                        add_plain_bfv(input1_, input2, output_, options.stream_);
+
+                        output_.scheme_ = context_->scheme_;
+                        output_.ring_size_ = context_->n;
+                        output_.coeff_modulus_count_ = context_->Q_size;
+                        output_.cipher_size_ = 2;
+                        output_.depth_ = input1_.depth_;
+                        output_.metadata_ = input1_.metadata_; 
+                        output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                        output_.rescale_required_ = input1_.rescale_required_;
+                        output_.relinearization_required_ =
+                            input1_.relinearization_required_;
+                        output_.ciphertext_generated_ = true;
                     },
                     options);
             },
@@ -314,41 +379,63 @@ namespace heongpu
 
         DeviceVector<Data64> output_memory((cipher_size * context_->n * current_decomp_count), stream); // @company CipherFlow
 
-        if (input2.is_ringt_) { // @company CipherFlow
-            // @company CipherFlow begin ---
-            int counter = context_->Q_size;
-            int location = 0;
-            for (int i = 0; i < input1.depth_; i++)
-            {
-                location += counter;
-                counter--;
-            }
-            // @company CipherFlow end ---
+        // @company CipherFlow begin ---
+        Data64* plaintext_data = input2.data();
+        DeviceVector<Data64> converted_plaintext;
 
-            addition_plain_bfv_poly<<<dim3((context_->n >> 8), current_decomp_count, cipher_size), 256, 0, 
-                                    stream>>>(
-                input1.data(), input2.data(), output_memory.data(),
-                context_->modulus_->data(), context_->plain_modulus_, context_->Q_mod_t_->data() + location, context_->upper_threshold_,
-                context_->coeeff_div_plainmod_->data() + location, context_->n_power); // @company CipherFlow
+        if (input2.metadata_.is_ringt) {
+            converted_plaintext.resize(context_->n * current_decomp_count, stream);
+            ringt_to_bgv_plain_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
+                                        256, 0, stream>>>(
+                input2.data(), converted_plaintext.data(), context_->modulus_->data(),
+                context_->t_inv_mod_Qi_->data(), context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
-        } else { // @company CipherFlow
-            // @company CipherFlow begin ---
-            addition<<<dim3((context_->n >> 8), current_decomp_count, 1), 
-                        256, 0, stream>>>(
-                input1.data(), input2.data(),
-                output_memory.data(), context_->modulus_->data(),
-                context_->n_power);
-            HEONGPU_CUDA_CHECK(cudaGetLastError());
-            
-            global_memory_replace_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1), 256, 0,
-                    stream>>>(input1.data() + context_->n * current_decomp_count, output_memory.data() + context_->n * current_decomp_count,
-                                context_->n_power); 
-            HEONGPU_CUDA_CHECK(cudaGetLastError());
-            // @company CipherFlow end ---
+            plaintext_data = converted_plaintext.data();
         }
+        // @company CipherFlow end ---
+
+        addition_plain_ckks_poly<<<dim3((context_->n >> 8), current_decomp_count, cipher_size),
+                                   256, 0, stream>>>(
+            input1.data(), plaintext_data, output_memory.data(),
+            context_->modulus_->data(), context_->n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         output.cipher_size_ = cipher_size;
 
+        output.memory_set(std::move(output_memory));
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::add_plain_bfv(
+        Ciphertext<Scheme::BFV>& input1, Data64 input2,
+        Ciphertext<Scheme::BFV>& output, const cudaStream_t stream)
+    {
+        int current_decomp_count = context_->Q_size - input1.depth_;
+        int cipher_size = input1.relinearization_required_ ? 3 : 2;
+
+        if (input1.memory_size() <
+            (cipher_size * context_->n * current_decomp_count))
+        {
+            throw std::invalid_argument("Invalid Ciphertexts size!");
+        }
+
+        Data64 plain_mod = context_->plain_modulus_.value;
+        Data64 scalar_mod_t = input2 % plain_mod;
+        Data64 scale_mod_t = static_cast<Data64>(std::llround(input1.scale())) % plain_mod;
+        Data64 scaled_scalar = OPERATOR64::mult(
+            scalar_mod_t, scale_mod_t, context_->plain_modulus_);
+
+        DeviceVector<Data64> output_memory(
+            (cipher_size * context_->n * current_decomp_count), stream);
+
+        addition_plain_bfv_poly<<<
+            dim3((context_->n >> 8), current_decomp_count, cipher_size), 256, 0,
+            stream>>>(input1.data(), scaled_scalar, output_memory.data(),
+                       context_->modulus_->data(), context_->plain_modulus_,
+                       context_->t_inv_mod_Qi_->data(), context_->n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        output.cipher_size_ = cipher_size;
         output.memory_set(std::move(output_memory));
     }
 
@@ -388,6 +475,66 @@ namespace heongpu
         HEONGPU_CUDA_CHECK(cudaGetLastError());
     }
 
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::sub_plain(
+        Ciphertext<Scheme::BFV>& input1, std::int64_t input2,
+        Ciphertext<Scheme::BFV>& output, const ExecutionOptions& options)
+    {
+        Data64 plain_mod = context_->plain_modulus_.value;
+        std::int64_t mod = static_cast<std::int64_t>(plain_mod);
+        std::int64_t scalar = input2 % mod;
+        if (scalar < 0)
+        {
+            scalar += mod;
+        }
+        sub_plain(input1, static_cast<std::uint64_t>(scalar), output, options);
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::sub_plain(
+        Ciphertext<Scheme::BFV>& input1, std::uint64_t input2,
+        Ciphertext<Scheme::BFV>& output, const ExecutionOptions& options)
+    {
+        if (input1.relinearization_required_)
+        {
+            throw std::invalid_argument(
+                "Ciphertext and Plaintext can not be added because "
+                "ciphertext has non-linear partl!");
+        }
+
+        input_storage_manager(
+            input1,
+            [&](Ciphertext<Scheme::BFV>& input1_)
+            {
+                output_storage_manager(
+                    output,
+                    [&](Ciphertext<Scheme::BFV>& output_)
+                    {
+                        if (input1_.in_ntt_domain_)
+                        {
+                            throw std::logic_error(
+                                "BFV ciphertext should be not in NTT domain");
+                        }
+
+                        sub_plain_bfv(input1_, input2, output_, options.stream_);
+
+                        output_.scheme_ = context_->scheme_;
+                        output_.ring_size_ = context_->n;
+                        output_.coeff_modulus_count_ = context_->Q_size;
+                        output_.cipher_size_ = 2;
+                        output_.depth_ = input1_.depth_;
+                        output_.metadata_ = input1_.metadata_; 
+                        output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                        output_.rescale_required_ = input1_.rescale_required_;
+                        output_.relinearization_required_ =
+                            input1_.relinearization_required_;
+                        output_.ciphertext_generated_ = true;
+                    },
+                    options);
+            },
+            options, (&input1 == &output));
+    }
+
     __host__ void HEOperator<Scheme::BFV>::sub_plain_bfv(
         Ciphertext<Scheme::BFV>& input1, Plaintext<Scheme::BFV>& input2,
         Ciphertext<Scheme::BFV>& output, const cudaStream_t stream)
@@ -408,41 +555,63 @@ namespace heongpu
 
         DeviceVector<Data64> output_memory((cipher_size * context_->n * current_decomp_count), stream); // @company CipherFlow
 
-        if (input2.is_ringt_) { // @company CipherFlow
-            // @company CipherFlow begin ---
-            int counter = context_->Q_size;
-            int location = 0;
-            for (int i = 0; i < input1.depth_; i++)
-            {
-                location += counter;
-                counter--;
-            }
-            // @company CipherFlow end ---
-            
-            substraction_plain_bfv_poly<<<dim3((context_->n >> 8), current_decomp_count, cipher_size), 256,
-                                        0, stream>>>(
-                input1.data(), input2.data(), output_memory.data(),
-                context_->modulus_->data(), context_->plain_modulus_, context_->Q_mod_t_->data() + location, context_->upper_threshold_,
-                context_->coeeff_div_plainmod_->data() + location, context_->n_power); // @company CipherFlow
+        // @company CipherFlow begin ---
+        Data64* plaintext_data = input2.data();
+        DeviceVector<Data64> converted_plaintext;
+
+        if (input2.metadata_.is_ringt) {
+            converted_plaintext.resize(context_->n * current_decomp_count, stream);
+            ringt_to_bgv_plain_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1),
+                                        256, 0, stream>>>(
+                input2.data(), converted_plaintext.data(), context_->modulus_->data(),
+                context_->t_inv_mod_Qi_->data(), context_->n_power);
             HEONGPU_CUDA_CHECK(cudaGetLastError());
-        } else {
-            // @company CipherFlow begin ---
-            substraction<<<dim3((context_->n >> 8), current_decomp_count, 1), 
-                        256, 0, stream>>>(
-                input1.data(), input2.data(),
-                output_memory.data(), context_->modulus_->data(),
-                context_->n_power);
-            HEONGPU_CUDA_CHECK(cudaGetLastError());
-            
-            global_memory_replace_kernel<<<dim3((context_->n >> 8), current_decomp_count, 1), 256, 0,
-                    stream>>>(input1.data() + context_->n * current_decomp_count, output_memory.data() + context_->n * current_decomp_count,
-                                context_->n_power); 
-            HEONGPU_CUDA_CHECK(cudaGetLastError());
-            // @company CipherFlow end ---
+            plaintext_data = converted_plaintext.data();
         }
+        // @company CipherFlow end ---
+
+        substraction_plain_ckks_poly<<<dim3((context_->n >> 8), current_decomp_count, cipher_size),
+                                        256, 0, stream>>>(
+            input1.data(), plaintext_data, output_memory.data(),
+            context_->modulus_->data(), context_->n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
 
         output.cipher_size_ = cipher_size;
 
+        output.memory_set(std::move(output_memory));
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::sub_plain_bfv(
+        Ciphertext<Scheme::BFV>& input1, Data64 input2,
+        Ciphertext<Scheme::BFV>& output, const cudaStream_t stream)
+    {
+        int current_decomp_count = context_->Q_size - input1.depth_;
+        int cipher_size = input1.relinearization_required_ ? 3 : 2;
+
+        if (input1.memory_size() <
+            (cipher_size * context_->n * current_decomp_count))
+        {
+            throw std::invalid_argument("Invalid Ciphertexts size!");
+        }
+
+        Data64 plain_mod = context_->plain_modulus_.value;
+        Data64 scalar_mod_t = input2 % plain_mod;
+        Data64 scale_mod_t = static_cast<Data64>(std::llround(input1.scale())) % plain_mod;
+        Data64 scaled_scalar = OPERATOR64::mult(
+            scalar_mod_t, scale_mod_t, context_->plain_modulus_);
+
+        DeviceVector<Data64> output_memory(
+            (cipher_size * context_->n * current_decomp_count), stream);
+
+        substraction_plain_bfv_poly<<<
+            dim3((context_->n >> 8), current_decomp_count, cipher_size), 256, 0,
+            stream>>>(input1.data(), scaled_scalar, output_memory.data(),
+                       context_->modulus_->data(), context_->plain_modulus_,
+                       context_->t_inv_mod_Qi_->data(), context_->n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        output.cipher_size_ = cipher_size;
         output.memory_set(std::move(output_memory));
     }
 
@@ -597,6 +766,56 @@ namespace heongpu
         output.memory_set(std::move(output_memory));
     }
 
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::multiply_plain(
+        Ciphertext<Scheme::BFV>& input1, std::int64_t input2,
+        Ciphertext<Scheme::BFV>& output, const ExecutionOptions& options)
+    {
+        Data64 plain_mod = context_->plain_modulus_.value;
+        std::int64_t mod = static_cast<std::int64_t>(plain_mod);
+        std::int64_t scalar = input2 % mod;
+        if (scalar < 0)
+        {
+            scalar += mod;
+        }
+        multiply_plain(input1, static_cast<std::uint64_t>(scalar), output,
+                       options);
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::multiply_plain(
+        Ciphertext<Scheme::BFV>& input1, std::uint64_t input2,
+        Ciphertext<Scheme::BFV>& output, const ExecutionOptions& options)
+    {
+        input_storage_manager(
+            input1,
+            [&](Ciphertext<Scheme::BFV>& input1_)
+            {
+                output_storage_manager(
+                    output,
+                    [&](Ciphertext<Scheme::BFV>& output_)
+                    {
+                        multiply_plain_bfv(input1_, input2, output_,
+                                           options.stream_);
+
+                        output_.scheme_ = context_->scheme_;
+                        output_.ring_size_ = context_->n;
+                        output_.coeff_modulus_count_ = context_->Q_size;
+                        output_.cipher_size_ =
+                            input1_.relinearization_required_ ? 3 : 2;
+                        output_.depth_ = input1_.depth_;
+                        output_.metadata_ = input1_.metadata_; 
+                        output_.in_ntt_domain_ = input1_.in_ntt_domain_;
+                        output_.rescale_required_ = input1_.rescale_required_;
+                        output_.relinearization_required_ =
+                            input1_.relinearization_required_;
+                        output_.ciphertext_generated_ = true;
+                    },
+                    options);
+            },
+            options, (&input1 == &output));
+    }
+
     __host__ void HEOperator<Scheme::BFV>::multiply_plain_bfv(
         Ciphertext<Scheme::BFV>& input1, Plaintext<Scheme::BFV>& input2,
         Ciphertext<Scheme::BFV>& output, const cudaStream_t stream)
@@ -658,6 +877,37 @@ namespace heongpu
                                     current_decomp_count); // @company CipherFlow
         }
 
+        output.memory_set(std::move(output_memory));
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::multiply_plain_bfv(
+        Ciphertext<Scheme::BFV>& input1, Data64 input2,
+        Ciphertext<Scheme::BFV>& output, const cudaStream_t stream)
+    {
+        int current_decomp_count = context_->Q_size - input1.depth_;
+        int cipher_size = input1.relinearization_required_ ? 3 : 2;
+
+        if (input1.memory_size() <
+            (cipher_size * context_->n * current_decomp_count))
+        {
+            throw std::invalid_argument("Invalid Ciphertexts size!");
+        }
+
+        Data64 plain_mod = context_->plain_modulus_.value;
+        Data64 scalar_mod_t = input2 % plain_mod;
+
+        DeviceVector<Data64> output_memory(
+            (cipher_size * context_->n * current_decomp_count), stream);
+
+        cipherplain_kernel<<<
+            dim3((context_->n >> 8), current_decomp_count, cipher_size), 256, 0,
+            stream>>>(input1.data(), scalar_mod_t, output_memory.data(),
+                       context_->modulus_->data(), context_->plain_modulus_,
+                       context_->n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        output.cipher_size_ = cipher_size;
         output.memory_set(std::move(output_memory));
     }
 
@@ -1064,6 +1314,27 @@ namespace heongpu
 
         output.memory_set(std::move(output_memory));
 
+    }
+
+    // @company CipherFlow
+    __host__ void HEOperator<Scheme::BFV>::mod_drop_bfv_leveled(
+        Ciphertext<Scheme::BFV>& input1, Ciphertext<Scheme::BFV>& output,
+        int drop_level, const cudaStream_t stream)
+    {
+        int current_decomp_count = context_->Q_size - input1.depth_;
+        int output_decomp_count = current_decomp_count - drop_level;
+        int cipher_size = input1.cipher_size_;
+
+        DeviceVector<Data64> output_memory(
+            (cipher_size * context_->n * output_decomp_count), stream);
+
+        global_memory_drop_level_offset_kernel<<<
+            dim3((context_->n >> 8), output_decomp_count, cipher_size), 256, 0,
+            stream>>>(input1.data(), output_memory.data(), current_decomp_count,
+                       drop_level, context_->n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        output.memory_set(std::move(output_memory));
     }
 
     __host__ void HEOperator<Scheme::BFV>::rotate_method_I(
