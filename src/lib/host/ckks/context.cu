@@ -4,6 +4,7 @@
 // Developer: Alişah Özcan
 
 #include <heongpu/host/ckks/context.cuh>
+#include <heongpu/primitive/ntt.cuh>
 
 namespace heongpu
 {
@@ -351,13 +352,20 @@ namespace heongpu
 
             n_inverse_ =
                 std::make_shared<DeviceVector<Ninverse64>>(Qprime_n_inverse);
-            
+
+            phantom_ntt_tables_ =
+                primitive::make_phantom_ntt_tables_from_heongpu_roots(
+                    prime_vector_, Qprime_ntt_table, Qprime_intt_table,
+                    Qprime_n_inverse, n_power, cudaStreamLegacy, false);
+
             // @company CipherFlow begin ---
             if (log_slot_count == n_power - 1)
             {
                 // Full packing: slot_count = n/2, all three tables are the same.
                 ntt_table_slot_  = ntt_table_;
                 ntt_table_dslot_ = ntt_table_;
+                phantom_ntt_tables_slot_ = phantom_ntt_tables_;
+                phantom_ntt_tables_dslot_ = phantom_ntt_tables_;
             }
             else
             {
@@ -370,6 +378,12 @@ namespace heongpu
                 ntt_table_slot_ =
                     std::make_shared<DeviceVector<Root64>>(Qprime_sparse_ntt_table);
 
+                phantom_ntt_tables_slot_ =
+                    primitive::make_phantom_ntt_tables_from_heongpu_roots(
+                        prime_vector_, Qprime_sparse_ntt_table,
+                        std::vector<Root64>{}, std::vector<Ninverse64>{},
+                        log_sparse_n, cudaStreamLegacy, true);
+
                 int log_sparse_dn = log_slot_count + 2;
                 int sparse_dn = 1 << log_sparse_dn;
                 std::vector<Data64> base_q_psi_sparse_d =
@@ -378,6 +392,11 @@ namespace heongpu
                     generate_ntt_table(base_q_psi_sparse_d, prime_vector_, log_sparse_dn);
                 ntt_table_dslot_ =
                     std::make_shared<DeviceVector<Root64>>(Qprime_sparse_d_ntt_table);
+                phantom_ntt_tables_dslot_ =
+                    primitive::make_phantom_ntt_tables_from_heongpu_roots(
+                        prime_vector_, Qprime_sparse_d_ntt_table,
+                        std::vector<Root64>{}, std::vector<Ninverse64>{},
+                        log_sparse_dn, cudaStreamLegacy, true);
             }
             // @company CipherFlow end ---
 

@@ -7,6 +7,3 @@
 [submodule "thirdparty/RNGonGPU"]
 	path = thirdparty/RNGonGPU
 	url = https://github.com/Alisah-Ozcan/RNGonGPU
-[submodule "thirdparty/phantom-fhe"]
-	path = thirdparty/phantom-fhe
-	url = https://github.com/encryptorion-lab/phantom-fhe.git
