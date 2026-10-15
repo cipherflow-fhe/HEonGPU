@@ -94,6 +94,11 @@ namespace heongpu
 
         ~MemoryPool();
 
+        // Return the device and host memory pools to the driver.
+        // Every object that allocated from a pool must already be destroyed;
+        // the pool is re-created lazily by the next initialize() call.
+        void release() { clean_pool(); }
+
       private:
         MemoryPool();
         MemoryPool(const MemoryPool&) = delete;

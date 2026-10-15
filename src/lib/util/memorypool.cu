@@ -5,6 +5,11 @@
 
 #include <heongpu/util/memorypool.cuh>
 
+#include <algorithm>
+#include <cerrno>
+#include <cstdlib>
+#include <optional>
+
 namespace heongpu
 {
     std::shared_ptr<MemoryPool::HostResource> MemoryPool::host_base_ = nullptr;
@@ -22,12 +27,55 @@ namespace heongpu
     bool MemoryPool::initialized_ = false;
     std::mutex MemoryPool::mutex_;
 
+    namespace
+    {
+        // Parse an optional byte budget from the environment. Unset, empty,
+        // non-numeric and zero values are treated as "not configured" so that
+        // the caller falls back to the fraction-based defaults.
+        std::optional<size_t> pool_env_bytes(const char* name)
+        {
+            const char* raw = std::getenv(name);
+            if (raw == nullptr || *raw == '\0')
+            {
+                return std::nullopt;
+            }
+            char* end = nullptr;
+            errno = 0;
+            const unsigned long long value = std::strtoull(raw, &end, 10);
+            if (end == raw || errno != 0 || value == 0)
+            {
+                return std::nullopt;
+            }
+            return static_cast<size_t>(value);
+        }
+    } // namespace
+
     MemoryPoolConfig MemoryPoolConfig::Defaults()
     {
         MemoryPoolConfig config;
         config.initial_device_fraction = initial_device_memorypool_size;
         config.max_device_fraction = max_device_memorypool_size;
         config.max_host_fraction = max_host_memorypool_size;
+
+        // Explicit byte budgets take precedence over the fraction defaults.
+        // A container that shares a GPU with other workers can cap the device
+        // memory this process pools instead of the default greedy
+        // 0.9 x free. When only a maximum is given, the pool starts small and
+        // grows on demand, so an idle process reserves very little.
+        config.initial_device_bytes =
+            pool_env_bytes("HEONGPU_DEVICE_POOL_INITIAL_BYTES");
+        config.max_device_bytes = pool_env_bytes("HEONGPU_DEVICE_POOL_MAX_BYTES");
+        config.initial_host_bytes =
+            pool_env_bytes("HEONGPU_HOST_POOL_INITIAL_BYTES");
+        config.max_host_bytes = pool_env_bytes("HEONGPU_HOST_POOL_MAX_BYTES");
+        if (config.max_device_bytes.has_value() &&
+            !config.initial_device_bytes.has_value())
+        {
+            constexpr size_t default_initial_device_bytes = 1ull << 30; // 1 GiB
+            config.initial_device_bytes = std::min(
+                *config.max_device_bytes, default_initial_device_bytes);
+        }
+
         return config;
     }
 
